@@ -1,0 +1,346 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-tertiary: #0f0f23;
+    --accent: #e94560;
+    --accent-hover: #ff6b6b;
+    --text-primary: #eee;
+    --text-secondary: #888;
+    --text-muted: #555;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --border: #2a2a4a;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.screen {
+    height: 100vh;
+    width: 100vw;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Login Screen */
+#login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-primary) 100%);
+}
+
+.login-container {
+    background: var(--bg-secondary);
+    padding: 3rem;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border);
+}
+
+.login-container h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.login-container p {
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+}
+
+.login-container input {
+    width: 100%;
+    padding: 1rem;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    outline: none;
+    transition: border-color 0.3s;
+}
+
+.login-container input:focus {
+    border-color: var(--accent);
+}
+
+.login-container button {
+    width: 100%;
+    padding: 1rem;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.login-container button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(233, 69, 96, 0.3);
+}
+
+/* Main App Layout */
+#app-screen {
+    display: flex;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 280px;
+    background: var(--bg-secondary);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+}
+
+.sidebar-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header h2 {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+}
+
+.channels {
+    flex: 1;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.channels h3 {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.channel {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 0.25rem;
+}
+
+.channel:hover {
+    background: var(--bg-primary);
+}
+
+.channel.active {
+    background: var(--bg-primary);
+    border-left: 3px solid var(--accent);
+}
+
+.channel-icon {
+    margin-right: 0.5rem;
+    font-size: 1.2rem;
+}
+
+.channel-name {
+    flex: 1;
+}
+
+.channel-count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 10px;
+}
+
+/* User Panel */
+.user-panel {
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.user-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.user-controls button {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.2s;
+}
+
+.user-controls button:hover {
+    background: var(--bg-primary);
+}
+
+.user-controls button.muted {
+    background: var(--accent);
+}
+
+/* Main Content */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+}
+
+.channel-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.user-list {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.user-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    background: var(--bg-secondary);
+    transition: background-color 0.2s;
+}
+
+.user-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.user-item .user-avatar {
+    margin-right: 0.75rem;
+}
+
+.user-item.speaking {
+    border: 2px solid var(--success);
+    box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
+}
+
+.user-item.speaking .user-avatar {
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* Voice Status */
+.voice-status {
+    padding: 1rem 1.5rem;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+}
+
+.voice-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--success);
+}
+
+.voice-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 20px;
+}
+
+.voice-bars .bar {
+    width: 4px;
+    background: var(--success);
+    border-radius: 2px;
+    animation: sound 0.5s ease-in-out infinite;
+}
+
+.voice-bars .bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+.voice-bars .bar:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+.voice-bars .bar:nth-child(3) { height: 12px; animation-delay: 0.2s; }
+.voice-bars .bar:nth-child(4) { height: 20px; animation-delay: 0.3s; }
+.voice-bars .bar:nth-child(5) { height: 10px; animation-delay: 0.4s; }
+
+@keyframes sound {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+}
+
+.voice-indicator.inactive {
+    color: var(--text-muted);
+}
+
+.voice-indicator.inactive .bar {
+    animation: none;
+    opacity: 0.3;
+}
+
+#connection-status {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+#connection-status.connected {
+    color: var(--success);
+}
+
+#connection-status.error {
+    color: var(--accent);
+}

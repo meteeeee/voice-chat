@@ -1,0 +1,15 @@
+{
+    "name": "voice-chat",
+    "version": "1.0.0",
+    "description": "Discord-like voice chat for LAN",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "ws": "^8.14.2"
+    }
+}

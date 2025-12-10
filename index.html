@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen">
+        <div class="login-container">
+            <h1>🎤 Voice Chat</h1>
+            <p>Enter your username to join</p>
+            <input type="text" id="username-input" placeholder="Username" maxlength="20">
+            <button id="join-btn">Join</button>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app-screen" class="screen hidden">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>🎧 Voice Chat</h2>
+            </div>
+            <div class="channels">
+                <h3>VOICE CHANNELS</h3>
+                <div id="channel-list"></div>
+            </div>
+            <div class="user-panel">
+                <div class="user-info">
+                    <div class="user-avatar" id="my-avatar">U</div>
+                    <span id="my-username">Username</span>
+                </div>
+                <div class="user-controls">
+                    <button id="mute-btn" title="Mute">🎤</button>
+                    <button id="deafen-btn" title="Deafen">🔊</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="channel-header">
+                <span class="channel-icon">🔊</span>
+                <span id="current-channel">General</span>
+            </div>
+            <div class="user-list" id="user-list">
+                <!-- Users will be added here -->
+            </div>
+            <div class="voice-status">
+                <div id="voice-indicator" class="voice-indicator">
+                    <div class="voice-bars">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                    <span>Voice Connected</span>
+                </div>
+                <div id="connection-status">Connecting...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>
