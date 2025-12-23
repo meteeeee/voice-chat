@@ -460,11 +460,18 @@ class VoiceChat {
         console.log(`📨 Received answer from user ${senderId}`);
         const pc = this.peers.get(senderId);
         if (pc) {
+            // Avoid setting answer if already connected/stable
+            if (pc.signalingState === 'stable') {
+                console.warn(`⚠️ Ignoring answer from user ${senderId} because connection is already stable.`);
+                return;
+            }
+
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(answer));
                 console.log(`✅ Answer processed for user ${senderId}`);
             } catch (err) {
                 console.error('Failed to handle answer:', err);
+                // Don't retry immediately to avoid loops
             }
         }
     }
