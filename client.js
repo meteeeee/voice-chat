@@ -6,12 +6,19 @@ class VoiceChat {
         this.username = '';
         this.currentRoom = 'General';
         this.peers = new Map(); // userId -> RTCPeerConnection
+        this.remoteAudios = new Map(); // userId -> Audio element
         this.localStream = null;
         this.isMuted = false;
         this.isDeafened = false;
         this.isSpeaking = false;
         this.speakingThreshold = 0.02;
         this.silenceTimeout = null;
+
+        // Create audio container in DOM (needed for autoplay to work)
+        this.audioContainer = document.createElement('div');
+        this.audioContainer.id = 'audio-container';
+        this.audioContainer.style.display = 'none';
+        document.body.appendChild(this.audioContainer);
 
         this.initUI();
     }
@@ -211,9 +218,42 @@ class VoiceChat {
 
         // Handle incoming stream
         pc.ontrack = (event) => {
-            const audio = new Audio();
+            console.log(`Received audio track from user ${targetId}`);
+
+            // Remove existing audio for this user if any
+            if (this.remoteAudios.has(targetId)) {
+                const oldAudio = this.remoteAudios.get(targetId);
+                oldAudio.srcObject = null;
+                oldAudio.remove();
+            }
+
+            // Create audio element attached to DOM (required for autoplay)
+            const audio = document.createElement('audio');
+            audio.id = `audio-${targetId}`;
+            audio.autoplay = true;
+            audio.playsInline = true;
             audio.srcObject = event.streams[0];
-            audio.play().catch(e => console.error('Audio play failed:', e));
+            audio.muted = this.isDeafened;
+
+            // Add to DOM container
+            this.audioContainer.appendChild(audio);
+            this.remoteAudios.set(targetId, audio);
+
+            // Try to play with retry on user interaction
+            const playAudio = () => {
+                audio.play()
+                    .then(() => console.log(`Audio playing for user ${targetId}`))
+                    .catch(e => {
+                        console.warn('Audio autoplay blocked, will play on user interaction:', e);
+                        // Add one-time click listener to start audio
+                        const startAudio = () => {
+                            audio.play().catch(err => console.error('Still cannot play:', err));
+                            document.removeEventListener('click', startAudio);
+                        };
+                        document.addEventListener('click', startAudio);
+                    });
+            };
+            playAudio();
         };
 
         // Handle ICE candidates
@@ -295,12 +335,27 @@ class VoiceChat {
             pc.close();
             this.peers.delete(userId);
         }
+
+        // Clean up audio element
+        const audio = this.remoteAudios.get(userId);
+        if (audio) {
+            audio.srcObject = null;
+            audio.remove();
+            this.remoteAudios.delete(userId);
+        }
     }
 
     joinRoom(roomName) {
         // Close existing peer connections
         this.peers.forEach(pc => pc.close());
         this.peers.clear();
+
+        // Clean up all audio elements
+        this.remoteAudios.forEach(audio => {
+            audio.srcObject = null;
+            audio.remove();
+        });
+        this.remoteAudios.clear();
 
         this.currentRoom = roomName;
         document.getElementById('current-channel').textContent = roomName;
@@ -384,8 +439,8 @@ class VoiceChat {
         btn.classList.toggle('muted', this.isDeafened);
         btn.textContent = this.isDeafened ? '🔈' : '🔊';
 
-        // Mute all incoming audio
-        document.querySelectorAll('audio').forEach(audio => {
+        // Mute/unmute all incoming audio
+        this.remoteAudios.forEach(audio => {
             audio.muted = this.isDeafened;
         });
     }
