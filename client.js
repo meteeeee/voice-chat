@@ -200,21 +200,66 @@ class VoiceChat {
     }
 
     async createPeerConnection(targetId, isInitiator) {
+        // Wait for local stream to be ready
+        if (!this.localStream) {
+            console.warn('Local stream not ready, waiting...');
+            await new Promise(resolve => {
+                const checkStream = setInterval(() => {
+                    if (this.localStream) {
+                        clearInterval(checkStream);
+                        resolve();
+                    }
+                }, 100);
+            });
+        }
+
         const config = {
             iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                // Free TURN servers from Open Relay Project
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
             ]
         };
 
         const pc = new RTCPeerConnection(config);
         this.peers.set(targetId, pc);
 
-        // Add local stream
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => {
-                pc.addTrack(track, this.localStream);
-            });
-        }
+        // Monitor connection state
+        pc.onconnectionstatechange = () => {
+            console.log(`Connection to user ${targetId}: ${pc.connectionState}`);
+            if (pc.connectionState === 'connected') {
+                console.log(`✅ Successfully connected to user ${targetId}!`);
+            } else if (pc.connectionState === 'failed') {
+                console.error(`❌ Connection failed to user ${targetId}`);
+            }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.log(`ICE connection to user ${targetId}: ${pc.iceConnectionState}`);
+        };
+
+        // Add local stream tracks
+        console.log(`Adding local stream tracks to peer ${targetId}`);
+        this.localStream.getTracks().forEach(track => {
+            pc.addTrack(track, this.localStream);
+            console.log(`Added track: ${track.kind}`);
+        });
 
         // Handle incoming stream
         pc.ontrack = (event) => {
@@ -287,6 +332,7 @@ class VoiceChat {
     }
 
     async handleOffer(senderId, offer) {
+        console.log(`📨 Received offer from user ${senderId}`);
         let pc = this.peers.get(senderId);
         if (!pc) {
             pc = await this.createPeerConnection(senderId, false);
@@ -297,6 +343,7 @@ class VoiceChat {
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
+            console.log(`📤 Sending answer to user ${senderId}`);
             this.ws.send(JSON.stringify({
                 type: 'answer',
                 targetId: senderId,
@@ -308,10 +355,12 @@ class VoiceChat {
     }
 
     async handleAnswer(senderId, answer) {
+        console.log(`📨 Received answer from user ${senderId}`);
         const pc = this.peers.get(senderId);
         if (pc) {
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(answer));
+                console.log(`✅ Answer processed for user ${senderId}`);
             } catch (err) {
                 console.error('Failed to handle answer:', err);
             }
