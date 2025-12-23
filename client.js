@@ -13,6 +13,7 @@ class VoiceChat {
         this.isSpeaking = false;
         this.speakingThreshold = 0.02;
         this.silenceTimeout = null;
+        this.pendingCandidates = new Map(); // userId -> Array of candidates
 
         // Create audio container in DOM (needed for autoplay to work)
         this.audioContainer = document.createElement('div');
@@ -258,6 +259,20 @@ class VoiceChat {
         const pc = new RTCPeerConnection(config);
         this.peers.set(targetId, pc);
 
+        // Process any pending ICE candidates
+        if (this.pendingCandidates.has(targetId)) {
+            const candidates = this.pendingCandidates.get(targetId);
+            console.log(`🧊 Processing ${candidates.length} pending ICE candidates for user ${targetId}`);
+            for (const candidate of candidates) {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (err) {
+                    console.error('Failed to add pending ICE candidate:', err);
+                }
+            }
+            this.pendingCandidates.delete(targetId);
+        }
+
         // Monitor connection state
         pc.onconnectionstatechange = () => {
             console.log(`🔌 Connection to user ${targetId}: ${pc.connectionState}`);
@@ -410,6 +425,12 @@ class VoiceChat {
             } catch (err) {
                 console.error('Failed to add ICE candidate:', err);
             }
+        } else {
+            console.log(`⏳ Queueing ICE candidate for user ${senderId} (PC not ready)`);
+            if (!this.pendingCandidates.has(senderId)) {
+                this.pendingCandidates.set(senderId, []);
+            }
+            this.pendingCandidates.get(senderId).push(candidate);
         }
     }
 
