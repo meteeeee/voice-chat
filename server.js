@@ -126,15 +126,24 @@ wss.on('connection', (ws) => {
                 case 'answer':
                 case 'ice-candidate':
                     // Relay WebRTC signaling to target user
+                    const sender = users.get(ws);
+                    console.log(`📡 Relaying ${message.type} from user ${sender?.id} to user ${message.targetId}`);
+
+                    let found = false;
                     for (const [targetWs, user] of users.entries()) {
                         if (user.id === message.targetId && targetWs.readyState === WebSocket.OPEN) {
-                            const sender = users.get(ws);
+                            found = true;
                             targetWs.send(JSON.stringify({
                                 type: message.type,
                                 senderId: sender.id,
                                 data: message.data
                             }));
+                            console.log(`✅ Relayed ${message.type} to user ${message.targetId}`);
                         }
+                    }
+                    if (!found) {
+                        console.log(`❌ Target user ${message.targetId} not found! Active users:`,
+                            Array.from(users.values()).map(u => ({ id: u.id, room: u.room })));
                     }
                     break;
 

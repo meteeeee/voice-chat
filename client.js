@@ -328,25 +328,31 @@ class VoiceChat {
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                console.log(`🧊 Sending ICE candidate to user ${targetId}`);
                 this.ws.send(JSON.stringify({
                     type: 'ice-candidate',
                     targetId,
                     data: event.candidate
                 }));
+            } else {
+                console.log(`🧊 ICE gathering complete for user ${targetId}`);
             }
         };
 
         // Create offer if initiator
         if (isInitiator) {
             try {
+                console.log(`📤 Creating offer for user ${targetId}...`);
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
 
+                console.log(`📤 Sending offer to user ${targetId}`);
                 this.ws.send(JSON.stringify({
                     type: 'offer',
                     targetId,
                     data: offer
                 }));
+                console.log(`✅ Offer sent to user ${targetId}`);
             } catch (err) {
                 console.error('Failed to create offer:', err);
             }
