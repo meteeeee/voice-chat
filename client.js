@@ -63,12 +63,14 @@ class VoiceChat {
             setTimeout(() => this.connect(), 3000);
         };
 
-        this.ws.onerror = () => {
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
             this.updateConnectionStatus('Connection Error', 'error');
         };
 
         this.ws.onmessage = (event) => {
             const message = JSON.parse(event.data);
+            console.log(`📥 Received message: ${message.type}`, message);
             this.handleMessage(message);
         };
     }
@@ -76,6 +78,7 @@ class VoiceChat {
     handleMessage(message) {
         switch (message.type) {
             case 'joined':
+                console.log(`✅ Joined as user ${message.userId} in room ${message.room}`);
                 this.userId = message.userId;
                 this.currentRoom = message.room;
                 this.updateRoomList(message.rooms);
@@ -83,34 +86,39 @@ class VoiceChat {
                 break;
 
             case 'user-list':
+                console.log(`👥 User list received:`, message.users);
                 this.updateUserList(message.users);
                 // Create peer connections for existing users
                 message.users.forEach(user => {
                     if (user.id !== this.userId && !this.peers.has(user.id)) {
+                        console.log(`🔗 Will create peer connection to user ${user.id}`);
                         this.createPeerConnection(user.id, true);
                     }
                 });
                 break;
 
             case 'user-joined':
-                console.log(`${message.username} joined`);
+                console.log(`➡️ ${message.username} (user ${message.userId}) joined`);
                 // New user will initiate connection to us
                 break;
 
             case 'user-left':
-                console.log(`${message.username} left`);
+                console.log(`⬅️ ${message.username} (user ${message.userId}) left`);
                 this.removePeer(message.userId);
                 break;
 
             case 'offer':
+                console.log(`📨 RECEIVED OFFER from user ${message.senderId}!`);
                 this.handleOffer(message.senderId, message.data);
                 break;
 
             case 'answer':
+                console.log(`📨 RECEIVED ANSWER from user ${message.senderId}!`);
                 this.handleAnswer(message.senderId, message.data);
                 break;
 
             case 'ice-candidate':
+                console.log(`🧊 RECEIVED ICE CANDIDATE from user ${message.senderId}`);
                 this.handleIceCandidate(message.senderId, message.data);
                 break;
 
@@ -121,6 +129,9 @@ class VoiceChat {
             case 'rooms':
                 this.updateRoomList(message.rooms);
                 break;
+
+            default:
+                console.log(`❓ Unknown message type: ${message.type}`, message);
         }
     }
 
