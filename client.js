@@ -213,28 +213,41 @@ class VoiceChat {
             });
         }
 
+        console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
+
         const config = {
             iceServers: [
+                // Google STUN servers
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                // Free TURN servers from Open Relay Project
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                // Twilio STUN
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                // Free TURN servers from Metered (more reliable)
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:80',
+                    username: 'e8dd65b92f92e7a5c5e29822',
+                    credential: 'uWdWNmkhvyqTEuTB'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+                    username: 'e8dd65b92f92e7a5c5e29822',
+                    credential: 'uWdWNmkhvyqTEuTB'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:443',
+                    username: 'e8dd65b92f92e7a5c5e29822',
+                    credential: 'uWdWNmkhvyqTEuTB'
+                },
+                {
+                    urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+                    username: 'e8dd65b92f92e7a5c5e29822',
+                    credential: 'uWdWNmkhvyqTEuTB'
                 }
-            ]
+            ],
+            iceCandidatePoolSize: 10
         };
 
         const pc = new RTCPeerConnection(config);
@@ -242,16 +255,27 @@ class VoiceChat {
 
         // Monitor connection state
         pc.onconnectionstatechange = () => {
-            console.log(`Connection to user ${targetId}: ${pc.connectionState}`);
+            console.log(`🔌 Connection to user ${targetId}: ${pc.connectionState}`);
             if (pc.connectionState === 'connected') {
                 console.log(`✅ Successfully connected to user ${targetId}!`);
             } else if (pc.connectionState === 'failed') {
-                console.error(`❌ Connection failed to user ${targetId}`);
+                console.error(`❌ Connection failed to user ${targetId} - will retry`);
+                // Retry connection after failure
+                this.peers.delete(targetId);
+                setTimeout(() => {
+                    if (!this.peers.has(targetId)) {
+                        this.createPeerConnection(targetId, true);
+                    }
+                }, 2000);
             }
         };
 
         pc.oniceconnectionstatechange = () => {
-            console.log(`ICE connection to user ${targetId}: ${pc.iceConnectionState}`);
+            console.log(`🧊 ICE state for user ${targetId}: ${pc.iceConnectionState}`);
+        };
+
+        pc.onicegatheringstatechange = () => {
+            console.log(`📡 ICE gathering for user ${targetId}: ${pc.iceGatheringState}`);
         };
 
         // Add local stream tracks
