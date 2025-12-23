@@ -64,6 +64,30 @@ class VoiceChat {
             document.getElementById('my-username').textContent = this.username;
             document.getElementById('my-avatar').textContent = this.username.charAt(0).toUpperCase();
 
+            // Audio unlock button
+            document.getElementById('start-audio-btn').addEventListener('click', async () => {
+                // Create a dummy audio context to unlock
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioContext();
+                await ctx.resume();
+                console.log('Audio Context Resumed via button');
+
+                // Play a test beep to confirm audio works
+                const osc = ctx.createOscillator();
+                osc.connect(ctx.destination);
+                osc.frequency.value = 440;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.2);
+
+                document.getElementById('start-audio-btn').textContent = "Audio Enabled ✅";
+                document.getElementById('start-audio-btn').style.background = "#23a559";
+
+                // Try to play all existing remote audios
+                this.remoteAudios.forEach(audio => {
+                    audio.play().catch(e => console.error("Could not play remote audio:", e));
+                });
+            });
+
             this.connect();
         } catch (e) {
             alert('Login failed: ' + e.message);
