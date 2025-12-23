@@ -327,11 +327,12 @@ class VoiceChat {
         // Monitor connection state
         pc.onconnectionstatechange = () => {
             console.log(`🔌 Connection to user ${targetId}: ${pc.connectionState}`);
+            this.updatePeerStatus(targetId, pc.connectionState);
+
             if (pc.connectionState === 'connected') {
                 console.log(`✅ Successfully connected to user ${targetId}!`);
             } else if (pc.connectionState === 'failed') {
                 console.error(`❌ Connection failed to user ${targetId} - will retry`);
-                // Retry connection after failure
                 this.peers.delete(targetId);
                 setTimeout(() => {
                     if (!this.peers.has(targetId)) {
@@ -568,6 +569,33 @@ class VoiceChat {
         const userItem = document.getElementById(`user-${userId}`);
         if (userItem) {
             userItem.classList.toggle('speaking', speaking);
+        }
+    }
+
+    updatePeerStatus(userId, state) {
+        const userItem = document.getElementById(`user-${userId}`);
+        if (userItem) {
+            let statusSpan = userItem.querySelector('.peer-status');
+            if (!statusSpan) {
+                statusSpan = document.createElement('span');
+                statusSpan.className = 'peer-status';
+                statusSpan.style.fontSize = '0.8em';
+                statusSpan.style.marginLeft = '8px';
+                userItem.appendChild(statusSpan);
+            }
+
+            if (state === 'connected') {
+                statusSpan.textContent = '🟢';
+                statusSpan.title = "Connected";
+            } else if (state === 'connecting' || state === 'checking') {
+                statusSpan.textContent = '🔄';
+                statusSpan.title = "Connecting...";
+            } else if (state === 'failed' || state === 'disconnected') {
+                statusSpan.textContent = '🔴';
+                statusSpan.title = "Disconnected";
+            } else {
+                statusSpan.textContent = '';
+            }
         }
     }
 
