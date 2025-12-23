@@ -276,16 +276,24 @@ class VoiceChat {
 
         const config = {
             iceServers: [
-                // Metered STUN server
-                { urls: 'stun:stun.relay.metered.ca:80' },
-                // Metered TURN servers with YOUR credentials
+                // 1. Google STUN (Always reliable)
+                { urls: 'stun:stun.l.google.com:19302' },
+
+                // 2. Your Metered TURN (TCP often works better through restricted networks)
                 {
-                    urls: 'turn:global.relay.metered.ca:80',
+                    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
                     username: 'c464be6b9abee8e70c29656f',
                     credential: 'xJdI+s/0T31+Ewm+'
                 },
                 {
-                    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+                    urls: 'turn:global.relay.metered.ca:443?transport=tcp',
+                    username: 'c464be6b9abee8e70c29656f',
+                    credential: 'xJdI+s/0T31+Ewm+'
+                },
+
+                // 3. UDP fallbacks
+                {
+                    urls: 'turn:global.relay.metered.ca:80',
                     username: 'c464be6b9abee8e70c29656f',
                     credential: 'xJdI+s/0T31+Ewm+'
                 },
@@ -293,13 +301,9 @@ class VoiceChat {
                     urls: 'turn:global.relay.metered.ca:443',
                     username: 'c464be6b9abee8e70c29656f',
                     credential: 'xJdI+s/0T31+Ewm+'
-                },
-                {
-                    urls: 'turns:global.relay.metered.ca:443?transport=tcp',
-                    username: 'c464be6b9abee8e70c29656f',
-                    credential: 'xJdI+s/0T31+Ewm+'
                 }
             ],
+            iceTransportPolicy: 'relay', // FORCE relay usage to test TURN
             iceCandidatePoolSize: 10
         };
 
