@@ -25,11 +25,28 @@ class VoiceChat {
     }
 
     initUI() {
+        console.log('Initializing UI...');
+        // Global error handler for debugging
+        window.onerror = function (msg, url, line, col, error) {
+            alert(`Error: ${msg}\nLine: ${line}`);
+            return false;
+        };
+
         // Login
-        document.getElementById('join-btn').addEventListener('click', () => this.login());
-        document.getElementById('username-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.login();
-        });
+        const joinBtn = document.getElementById('join-btn');
+        if (joinBtn) {
+            joinBtn.addEventListener('click', () => this.login());
+            console.log('Join button listener attached');
+        } else {
+            console.error('Join button not found!');
+        }
+
+        const usernameInput = document.getElementById('username-input');
+        if (usernameInput) {
+            usernameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.login();
+            });
+        }
 
         // Controls
         document.getElementById('mute-btn').addEventListener('click', () => this.toggleMute());
@@ -37,15 +54,21 @@ class VoiceChat {
     }
 
     login() {
-        const usernameInput = document.getElementById('username-input');
-        this.username = usernameInput.value.trim() || 'User' + Math.floor(Math.random() * 1000);
+        try {
+            console.log('Login clicked');
+            const usernameInput = document.getElementById('username-input');
+            this.username = usernameInput.value.trim() || 'User' + Math.floor(Math.random() * 1000);
 
-        document.getElementById('login-screen').classList.add('hidden');
-        document.getElementById('app-screen').classList.remove('hidden');
-        document.getElementById('my-username').textContent = this.username;
-        document.getElementById('my-avatar').textContent = this.username.charAt(0).toUpperCase();
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+            document.getElementById('my-username').textContent = this.username;
+            document.getElementById('my-avatar').textContent = this.username.charAt(0).toUpperCase();
 
-        this.connect();
+            this.connect();
+        } catch (e) {
+            alert('Login failed: ' + e.message);
+            console.error(e);
+        }
     }
 
     connect() {
