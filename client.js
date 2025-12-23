@@ -228,34 +228,28 @@ class VoiceChat {
 
         const config = {
             iceServers: [
-                // Google STUN servers
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' },
-                // Twilio STUN
-                { urls: 'stun:global.stun.twilio.com:3478' },
-                // Free TURN servers from Metered (more reliable)
+                // Metered STUN server
+                { urls: 'stun:stun.relay.metered.ca:80' },
+                // Metered TURN servers with YOUR credentials
                 {
-                    urls: 'turn:a.relay.metered.ca:80',
-                    username: 'e8dd65b92f92e7a5c5e29822',
-                    credential: 'uWdWNmkhvyqTEuTB'
+                    urls: 'turn:global.relay.metered.ca:80',
+                    username: 'c464be6b9abee8e70c29656f',
+                    credential: 'xJdI+s/0T31+Ewm+'
                 },
                 {
-                    urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-                    username: 'e8dd65b92f92e7a5c5e29822',
-                    credential: 'uWdWNmkhvyqTEuTB'
+                    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+                    username: 'c464be6b9abee8e70c29656f',
+                    credential: 'xJdI+s/0T31+Ewm+'
                 },
                 {
-                    urls: 'turn:a.relay.metered.ca:443',
-                    username: 'e8dd65b92f92e7a5c5e29822',
-                    credential: 'uWdWNmkhvyqTEuTB'
+                    urls: 'turn:global.relay.metered.ca:443',
+                    username: 'c464be6b9abee8e70c29656f',
+                    credential: 'xJdI+s/0T31+Ewm+'
                 },
                 {
-                    urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-                    username: 'e8dd65b92f92e7a5c5e29822',
-                    credential: 'uWdWNmkhvyqTEuTB'
+                    urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+                    username: 'c464be6b9abee8e70c29656f',
+                    credential: 'xJdI+s/0T31+Ewm+'
                 }
             ],
             iceCandidatePoolSize: 10
