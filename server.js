@@ -7,7 +7,9 @@ const PORT = process.env.PORT || 3000;
 
 // Create HTTP server to serve static files
 const server = http.createServer((req, res) => {
-    let filePath = req.url === '/' ? '/index.html' : req.url;
+    // Remove query parameters from URL
+    const cleanUrl = req.url.split('?')[0];
+    let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
     filePath = path.join(__dirname, filePath);
 
     const extname = path.extname(filePath);
