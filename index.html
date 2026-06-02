@@ -49,8 +49,19 @@
                     style="margin-left: auto; padding: 5px 10px; background: #5865F2; color: white; border: none; border-radius: 4px; cursor: pointer;">Enable
                     Audio</button>
             </div>
-            <div class="user-list" id="user-list">
-                <!-- Users will be added here -->
+            <div class="content-body">
+                <div class="user-list" id="user-list">
+                    <!-- Users will be added here -->
+                </div>
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Chat messages will be dynamically added here -->
+                    </div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Message #channel" autocomplete="off" maxlength="200">
+                        <button id="send-chat-btn">Send</button>
+                    </div>
+                </div>
             </div>
             <div class="voice-status">
                 <div id="voice-indicator" class="voice-indicator">

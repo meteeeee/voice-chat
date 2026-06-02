@@ -6,10 +6,36 @@ const WebSocket = require('ws');
 const PORT = process.env.PORT || 3000;
 
 // Create HTTP server to serve static files
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
     // Remove query parameters from URL
     const cleanUrl = req.url.split('?')[0];
+
+    // Securely fetch TURN credentials from the backend so the API key is never sent to the user's browser
+    if (cleanUrl === '/turn-credentials') {
+        try {
+            const apiKey = process.env.METERED_API_KEY || "0f98cbf1863b4b88f65da030a99aa58228b9";
+            const response = await fetch(`https://mete-vc.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
+            const data = await response.json();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(data));
+        } catch (err) {
+            console.error("TURN Fetch Error:", err);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: "Failed to fetch credentials" }));
+        }
+        return;
+    }
+
+    // Only allow serving specific whitelisted public static files
+    const allowedFiles = ['/index.html', '/client.js', '/style.css'];
     let filePath = cleanUrl === '/' ? '/index.html' : cleanUrl;
+
+    if (!allowedFiles.includes(filePath)) {
+        res.writeHead(404);
+        res.end('File not found');
+        return;
+    }
+
     filePath = path.join(__dirname, filePath);
 
     const extname = path.extname(filePath);
@@ -129,8 +155,12 @@ wss.on('connection', (ws) => {
                 case 'ice-candidate':
                     // Relay WebRTC signaling to target user
                     const sender = users.get(ws);
+                    if (!sender) {
+                        console.warn("⚠️ Signal message received from unjoined client, ignoring.");
+                        return;
+                    }
                     const targetId = Number(message.targetId);
-                    console.log(`📡 Relaying ${message.type} from user ${sender?.id} to user ${targetId}`);
+                    console.log(`📡 Relaying ${message.type} from user ${sender.id} to user ${targetId}`);
 
                     let found = false;
                     for (const [targetWs, user] of users.entries()) {
@@ -170,6 +200,19 @@ wss.on('connection', (ws) => {
 
                 case 'get-rooms':
                     ws.send(JSON.stringify({ type: 'rooms', rooms: getRoomList() }));
+                    break;
+
+                case 'chat':
+                    // Ephemeral messaging: relay text chat message to everyone in the room without saving it
+                    const chatUser = users.get(ws);
+                    if (chatUser && chatUser.room) {
+                        broadcast(chatUser.room, {
+                            type: 'chat',
+                            userId: chatUser.id,
+                            username: chatUser.username,
+                            text: message.text || ''
+                        });
+                    }
                     break;
             }
         } catch (err) {

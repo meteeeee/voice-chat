@@ -14,6 +14,7 @@ class VoiceChat {
         this.speakingThreshold = 0.02;
         this.silenceTimeout = null;
         this.pendingCandidates = new Map(); // userId -> Array of candidates
+        this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]; // Default fallback
 
         // Create audio container in DOM (needed for autoplay to work)
         this.audioContainer = document.createElement('div');
@@ -51,13 +52,32 @@ class VoiceChat {
         // Controls
         document.getElementById('mute-btn').addEventListener('click', () => this.toggleMute());
         document.getElementById('deafen-btn').addEventListener('click', () => this.toggleDeafen());
+
+        // Chat UI Event Listeners
+        const chatInput = document.getElementById('chat-input');
+        const sendChatBtn = document.getElementById('send-chat-btn');
+        if (sendChatBtn && chatInput) {
+            sendChatBtn.addEventListener('click', () => this.sendChatMessage());
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.sendChatMessage();
+            });
+        }
     }
 
-    login() {
+    async login() {
         try {
             console.log('Login clicked');
             const usernameInput = document.getElementById('username-input');
             this.username = usernameInput.value.trim() || 'User' + Math.floor(Math.random() * 1000);
+
+            // Fetch dynamic TURN credentials securely from our own backend proxy!
+            try {
+                const response = await fetch("/turn-credentials");
+                this.iceServers = await response.json();
+                console.log("Successfully fetched TURN credentials");
+            } catch (err) {
+                console.error("Failed to fetch TURN credentials, using fallback STUN", err);
+            }
 
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
@@ -174,6 +194,10 @@ class VoiceChat {
                 this.updateSpeakingStatus(message.userId, message.speaking);
                 break;
 
+            case 'chat':
+                this.appendChatMessage(message.userId, message.username, message.text);
+                break;
+
             case 'rooms':
                 this.updateRoomList(message.rooms);
                 break;
@@ -275,35 +299,8 @@ class VoiceChat {
         console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
 
         const config = {
-            iceServers: [
-                // 1. Google STUN (Always reliable)
-                { urls: 'stun:stun.l.google.com:19302' },
-
-                // 2. Your Metered TURN (TCP often works better through restricted networks)
-                {
-                    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
-                    username: 'c464be6b9abee8e70c29656f',
-                    credential: 'xJdI+s/0T31+Ewm+'
-                },
-                {
-                    urls: 'turn:global.relay.metered.ca:443?transport=tcp',
-                    username: 'c464be6b9abee8e70c29656f',
-                    credential: 'xJdI+s/0T31+Ewm+'
-                },
-
-                // 3. UDP fallbacks
-                {
-                    urls: 'turn:global.relay.metered.ca:80',
-                    username: 'c464be6b9abee8e70c29656f',
-                    credential: 'xJdI+s/0T31+Ewm+'
-                },
-                {
-                    urls: 'turn:global.relay.metered.ca:443',
-                    username: 'c464be6b9abee8e70c29656f',
-                    credential: 'xJdI+s/0T31+Ewm+'
-                }
-            ],
-            iceTransportPolicy: 'relay', // FORCE relay usage to test TURN
+            iceServers: this.iceServers,
+            iceTransportPolicy: 'relay', // This forces all traffic through the TURN server to hide IP addresses.
             iceCandidatePoolSize: 10
         };
 
@@ -521,6 +518,18 @@ class VoiceChat {
         });
         this.remoteAudios.clear();
 
+        // Clear chat messages (no logs/persistence!)
+        const chatMessages = document.getElementById('chat-messages');
+        if (chatMessages) {
+            chatMessages.innerHTML = '';
+        }
+
+        // Update input placeholder to show current channel name
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+            chatInput.placeholder = `Message #${roomName}`;
+        }
+
         this.currentRoom = roomName;
         document.getElementById('current-channel').textContent = roomName;
 
@@ -604,6 +613,53 @@ class VoiceChat {
                 statusSpan.textContent = '';
             }
         }
+    }
+
+    sendChatMessage() {
+        const chatInput = document.getElementById('chat-input');
+        if (!chatInput) return;
+        const text = chatInput.value.trim();
+        if (!text) return;
+
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'chat',
+                text: text
+            }));
+            chatInput.value = '';
+        }
+    }
+
+    appendChatMessage(senderId, senderName, text) {
+        const chatMessages = document.getElementById('chat-messages');
+        if (!chatMessages) return;
+
+        const isSelf = senderId === this.userId;
+        const messageItem = document.createElement('div');
+        messageItem.className = `message-item ${isSelf ? 'self' : 'other'}`;
+
+        const meta = document.createElement('div');
+        meta.className = 'message-meta';
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'message-username';
+        nameSpan.textContent = isSelf ? 'You' : senderName;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'message-time';
+        timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        meta.appendChild(nameSpan);
+        meta.appendChild(timeSpan);
+
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        bubble.textContent = text;
+
+        messageItem.appendChild(meta);
+        messageItem.appendChild(bubble);
+        chatMessages.appendChild(messageItem);
+
+        // Auto scroll to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
     toggleMute() {
