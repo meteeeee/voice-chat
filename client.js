@@ -73,8 +73,17 @@ class VoiceChat {
             // Fetch dynamic TURN credentials securely from our own backend proxy!
             try {
                 const response = await fetch("/turn-credentials");
-                this.iceServers = await response.json();
-                console.log("Successfully fetched TURN credentials");
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        this.iceServers = data;
+                        console.log("Successfully fetched TURN credentials");
+                    } else {
+                        console.warn("Fetched credentials are not in expected array format, using fallback STUN:", data);
+                    }
+                } else {
+                    console.warn(`Server returned status ${response.status} for TURN credentials, using fallback STUN`);
+                }
             } catch (err) {
                 console.error("Failed to fetch TURN credentials, using fallback STUN", err);
             }
@@ -291,9 +300,16 @@ class VoiceChat {
 
         console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
 
+        // Check if we have valid TURN credentials. If we only have STUN, forcing 'relay' will fail.
+        const hasTurn = this.iceServers.some(server => {
+            if (!server || !server.urls) return false;
+            const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+            return urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'));
+        });
+
         const config = {
             iceServers: this.iceServers,
-            iceTransportPolicy: 'relay', // This forces all traffic through the TURN server to hide IP addresses.
+            iceTransportPolicy: hasTurn ? 'relay' : 'all', // Fallback to 'all' if no TURN server is available (like on local file:/// or fallback STUN testing)
             iceCandidatePoolSize: 10
         };
 
