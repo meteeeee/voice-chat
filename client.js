@@ -84,29 +84,22 @@ class VoiceChat {
             document.getElementById('my-username').textContent = this.username;
             document.getElementById('my-avatar').textContent = this.username.charAt(0).toUpperCase();
 
-            // Audio unlock button
-            document.getElementById('start-audio-btn').addEventListener('click', async () => {
-                // Create a dummy audio context to unlock
+            // Auto-unlock AudioContext using the user's click gesture of the Join button
+            try {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 const ctx = new AudioContext();
                 await ctx.resume();
-                console.log('Audio Context Resumed via button');
+                console.log('Audio Context Resumed automatically via Join click');
 
-                // Play a test beep to confirm audio works
+                // Play a brief test beep to confirm audio works
                 const osc = ctx.createOscillator();
                 osc.connect(ctx.destination);
                 osc.frequency.value = 440;
                 osc.start();
-                osc.stop(ctx.currentTime + 0.2);
-
-                document.getElementById('start-audio-btn').textContent = "Audio Enabled ✅";
-                document.getElementById('start-audio-btn').style.background = "#23a559";
-
-                // Try to play all existing remote audios
-                this.remoteAudios.forEach(audio => {
-                    audio.play().catch(e => console.error("Could not play remote audio:", e));
-                });
-            });
+                osc.stop(ctx.currentTime + 0.1);
+            } catch (err) {
+                console.warn('Failed to auto-resume AudioContext:', err);
+            }
 
             this.connect();
         } catch (e) {
@@ -556,7 +549,9 @@ class VoiceChat {
             channel.className = 'channel' + (roomName === this.currentRoom ? ' active' : '');
             channel.dataset.room = roomName;
             channel.innerHTML = `
-                <span class="channel-icon">🔊</span>
+                <span class="channel-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                </span>
                 <span class="channel-name">${roomName}</span>
                 <span class="channel-count">${userCount}</span>
             `;
@@ -601,16 +596,16 @@ class VoiceChat {
             }
 
             if (state === 'connected') {
-                statusSpan.textContent = '🟢';
+                statusSpan.innerHTML = '<span class="status-dot connected"></span>';
                 statusSpan.title = "Connected";
             } else if (state === 'connecting' || state === 'checking') {
-                statusSpan.textContent = '🔄';
+                statusSpan.innerHTML = '<span class="status-dot checking"></span>';
                 statusSpan.title = "Connecting...";
             } else if (state === 'failed' || state === 'disconnected') {
-                statusSpan.textContent = '🔴';
+                statusSpan.innerHTML = '<span class="status-dot disconnected"></span>';
                 statusSpan.title = "Disconnected";
             } else {
-                statusSpan.textContent = '';
+                statusSpan.innerHTML = '';
             }
         }
     }
@@ -666,7 +661,6 @@ class VoiceChat {
         this.isMuted = !this.isMuted;
         const btn = document.getElementById('mute-btn');
         btn.classList.toggle('muted', this.isMuted);
-        btn.textContent = this.isMuted ? '🔇' : '🎤';
 
         if (this.localStream) {
             this.localStream.getAudioTracks().forEach(track => {
@@ -684,7 +678,6 @@ class VoiceChat {
         this.isDeafened = !this.isDeafened;
         const btn = document.getElementById('deafen-btn');
         btn.classList.toggle('muted', this.isDeafened);
-        btn.textContent = this.isDeafened ? '🔈' : '🔊';
 
         // Mute/unmute all incoming audio
         this.remoteAudios.forEach(audio => {
