@@ -358,16 +358,9 @@ class VoiceChat {
 
         console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
 
-        // Check if we have valid TURN credentials. If we only have STUN, forcing 'relay' will fail.
-        const hasTurn = this.iceServers.some(server => {
-            if (!server || !server.urls) return false;
-            const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-            return urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'));
-        });
-
         const config = {
             iceServers: this.iceServers,
-            iceTransportPolicy: hasTurn ? 'relay' : 'all',
+            iceTransportPolicy: 'all', // Allow direct P2P for fastest connection; TURN is still a fallback if P2P fails
             iceCandidatePoolSize: 10
         };
 
