@@ -5,6 +5,28 @@ const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
 
+// ⚡ Cache TURN credentials so we don't hit the Metered API on every page load
+let turnCache = null;
+let turnCacheTime = 0;
+const TURN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getTurnCredentials() {
+    const now = Date.now();
+    if (turnCache && (now - turnCacheTime) < TURN_CACHE_TTL) {
+        return turnCache;
+    }
+    const apiKey = process.env.METERED_API_KEY || "0f98cbf1863b4b88f65da030a99aa58228b9";
+    const response = await fetch(`https://mete-vc.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
+    const data = await response.json();
+    turnCache = data;
+    turnCacheTime = now;
+    console.log('🔄 TURN credentials refreshed and cached');
+    return data;
+}
+
+// Pre-warm the TURN cache on server startup
+getTurnCredentials().catch(err => console.warn('⚠️ Failed to pre-warm TURN cache:', err));
+
 // Create HTTP server to serve static files
 const server = http.createServer(async (req, res) => {
     // Remove query parameters from URL
@@ -13,10 +35,11 @@ const server = http.createServer(async (req, res) => {
     // Securely fetch TURN credentials from the backend so the API key is never sent to the user's browser
     if (cleanUrl === '/turn-credentials') {
         try {
-            const apiKey = process.env.METERED_API_KEY || "0f98cbf1863b4b88f65da030a99aa58228b9";
-            const response = await fetch(`https://mete-vc.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
-            const data = await response.json();
-            res.writeHead(200, { 'Content-Type': 'application/json' });
+            const data = await getTurnCredentials();
+            res.writeHead(200, { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'private, max-age=300' // Browser can cache for 5 min too
+            });
             res.end(JSON.stringify(data));
         } catch (err) {
             console.error("TURN Fetch Error:", err);
@@ -200,6 +223,11 @@ wss.on('connection', (ws) => {
 
                 case 'get-rooms':
                     ws.send(JSON.stringify({ type: 'rooms', rooms: getRoomList() }));
+                    break;
+
+                case 'ping':
+                    // Heartbeat — keep the connection alive
+                    ws.send(JSON.stringify({ type: 'pong' }));
                     break;
 
                 case 'chat':

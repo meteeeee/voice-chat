@@ -1,4 +1,4 @@
-// Voice Chat Client
+// Voice Chat Client — Optimized for fast connection
 class VoiceChat {
     constructor() {
         this.ws = null;
@@ -15,6 +15,9 @@ class VoiceChat {
         this.silenceTimeout = null;
         this.pendingCandidates = new Map(); // userId -> Array of candidates
         this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]; // Default fallback
+        this.audioReady = null; // Promise that resolves when mic is ready
+        this._audioReadyResolve = null;
+        this.heartbeatInterval = null;
 
         // Create audio container in DOM (needed for autoplay to work)
         this.audioContainer = document.createElement('div');
@@ -70,79 +73,124 @@ class VoiceChat {
             const usernameInput = document.getElementById('username-input');
             this.username = usernameInput.value.trim() || 'User' + Math.floor(Math.random() * 1000);
 
-            // Fetch dynamic TURN credentials securely from our own backend proxy!
-            try {
-                const response = await fetch("/turn-credentials");
-                if (response.ok) {
-                    const data = await response.json();
-                    if (Array.isArray(data)) {
-                        this.iceServers = data;
-                        console.log("Successfully fetched TURN credentials");
-                    } else {
-                        console.warn("Fetched credentials are not in expected array format, using fallback STUN:", data);
-                    }
-                } else {
-                    console.warn(`Server returned status ${response.status} for TURN credentials, using fallback STUN`);
-                }
-            } catch (err) {
-                console.error("Failed to fetch TURN credentials, using fallback STUN", err);
-            }
-
+            // Show app screen IMMEDIATELY — don't wait for anything
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
             document.getElementById('my-username').textContent = this.username;
             document.getElementById('my-avatar').textContent = this.username.charAt(0).toUpperCase();
+            this.updateConnectionStatus('Connecting...', '');
 
-            // Auto-unlock AudioContext using the user's click gesture of the Join button
+            // Create the audioReady promise that peer connections will await
+            this.audioReady = new Promise(resolve => {
+                this._audioReadyResolve = resolve;
+            });
+
+            // ⚡ FIRE ALL THREE IN PARALLEL — this is the key speedup
+            const turnPromise = this.fetchTurnCredentials();
+            const micPromise = this.initAudio();
+            const wsPromise = this.connect();
+
+            // Unlock AudioContext using the user's click gesture (must be synchronous-ish)
             try {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 const ctx = new AudioContext();
                 await ctx.resume();
-                console.log('Audio Context Resumed automatically via Join click');
-
-                // Play a brief test beep to confirm audio works
-                const osc = ctx.createOscillator();
-                osc.connect(ctx.destination);
-                osc.frequency.value = 440;
-                osc.start();
-                osc.stop(ctx.currentTime + 0.1);
+                console.log('Audio Context resumed via Join click');
             } catch (err) {
                 console.warn('Failed to auto-resume AudioContext:', err);
             }
 
-            this.connect();
+            // Wait for TURN credentials before peer connections start (but mic + WS are already going)
+            await turnPromise;
+
+            console.log('⚡ Login complete — all systems launching in parallel');
         } catch (e) {
             alert('Login failed: ' + e.message);
             console.error(e);
         }
     }
 
+    async fetchTurnCredentials() {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout instead of waiting forever
+
+            const response = await fetch("/turn-credentials", { signal: controller.signal });
+            clearTimeout(timeout);
+
+            if (response.ok) {
+                const data = await response.json();
+                if (Array.isArray(data)) {
+                    this.iceServers = data;
+                    console.log("✅ TURN credentials fetched");
+                } else {
+                    console.warn("TURN response not array, using fallback STUN:", data);
+                }
+            } else {
+                console.warn(`Server returned ${response.status} for TURN credentials, using fallback STUN`);
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.warn("⏱ TURN credential fetch timed out (3s), using fallback STUN");
+            } else {
+                console.error("Failed to fetch TURN credentials, using fallback STUN", err);
+            }
+        }
+    }
+
     connect() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
+        return new Promise((resolve) => {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
 
-        this.ws = new WebSocket(wsUrl);
+            this.ws = new WebSocket(wsUrl);
 
-        this.ws.onopen = () => {
-            this.updateConnectionStatus('Connected', 'connected');
-            this.joinRoom(this.currentRoom);
-        };
+            this.ws.onopen = () => {
+                console.log('⚡ WebSocket connected');
+                this.updateConnectionStatus('Connected', 'connected');
+                this.joinRoom(this.currentRoom);
+                this.startHeartbeat();
+                resolve();
+            };
 
-        this.ws.onclose = () => {
-            this.updateConnectionStatus('Disconnected - Reconnecting...', 'error');
-            setTimeout(() => this.connect(), 3000);
-        };
+            this.ws.onclose = () => {
+                this.stopHeartbeat();
+                this.updateConnectionStatus('Disconnected - Reconnecting...', 'error');
+                // Exponential backoff would be better, but quick reconnect for now
+                setTimeout(() => this.connect(), 1500);
+            };
 
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.updateConnectionStatus('Connection Error', 'error');
-        };
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.updateConnectionStatus('Connection Error', 'error');
+                resolve(); // Resolve anyway so login doesn't hang
+            };
 
-        this.ws.onmessage = (event) => {
-            const message = JSON.parse(event.data);
-            console.log(`📥 Received message: ${message.type}`, message);
-            this.handleMessage(message);
-        };
+            this.ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type !== 'speaking' && message.type !== 'pong') {
+                    console.log(`📥 ${message.type}`, message);
+                }
+                this.handleMessage(message);
+            };
+        });
+    }
+
+    startHeartbeat() {
+        this.stopHeartbeat();
+        // Send a ping every 25s to keep the WebSocket alive (Render/Heroku have 30-60s idle timeouts)
+        this.heartbeatInterval = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 25000);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
     }
 
     handleMessage(message) {
@@ -152,7 +200,7 @@ class VoiceChat {
                 this.userId = message.userId;
                 this.currentRoom = message.room;
                 this.updateRoomList(message.rooms);
-                this.initAudio();
+                // Audio is already being initialized in parallel from login()
                 break;
 
             case 'user-list':
@@ -188,7 +236,6 @@ class VoiceChat {
                 break;
 
             case 'ice-candidate':
-                console.log(`🧊 RECEIVED ICE CANDIDATE from user ${message.senderId}`);
                 this.handleIceCandidate(message.senderId, message.data);
                 break;
 
@@ -202,6 +249,10 @@ class VoiceChat {
 
             case 'rooms':
                 this.updateRoomList(message.rooms);
+                break;
+
+            case 'pong':
+                // Heartbeat acknowledged
                 break;
 
             default:
@@ -220,12 +271,21 @@ class VoiceChat {
                 video: false
             });
 
+            // Signal that audio is ready — any waiting peer connections will proceed
+            if (this._audioReadyResolve) {
+                this._audioReadyResolve();
+            }
+
             this.setupVoiceDetection();
             this.updateConnectionStatus('Voice Connected', 'connected');
             document.getElementById('voice-indicator').classList.remove('inactive');
 
         } catch (err) {
             console.error('Failed to get audio:', err);
+            // Still resolve so peer connections don't hang forever
+            if (this._audioReadyResolve) {
+                this._audioReadyResolve();
+            }
             this.updateConnectionStatus('Microphone access denied', 'error');
         }
     }
@@ -285,17 +345,15 @@ class VoiceChat {
     }
 
     async createPeerConnection(targetId, isInitiator) {
-        // Wait for local stream to be ready
+        // Wait for mic to be ready using the promise instead of polling
+        if (!this.localStream && this.audioReady) {
+            console.warn('⏳ Waiting for mic stream...');
+            await this.audioReady;
+        }
+
+        // If mic was denied, we still proceed (one-way audio)
         if (!this.localStream) {
-            console.warn('Local stream not ready, waiting...');
-            await new Promise(resolve => {
-                const checkStream = setInterval(() => {
-                    if (this.localStream) {
-                        clearInterval(checkStream);
-                        resolve();
-                    }
-                }, 100);
-            });
+            console.warn('⚠️ No local stream available, proceeding without mic');
         }
 
         console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
@@ -309,14 +367,14 @@ class VoiceChat {
 
         const config = {
             iceServers: this.iceServers,
-            iceTransportPolicy: hasTurn ? 'relay' : 'all', // Fallback to 'all' if no TURN server is available (like on local file:/// or fallback STUN testing)
+            iceTransportPolicy: hasTurn ? 'relay' : 'all',
             iceCandidatePoolSize: 10
         };
 
         const pc = new RTCPeerConnection(config);
         this.peers.set(targetId, pc);
 
-        // Process any pending ICE candidates
+        // Process any pending ICE candidates immediately
         if (this.pendingCandidates.has(targetId)) {
             const candidates = this.pendingCandidates.get(targetId);
             console.log(`🧊 Processing ${candidates.length} pending ICE candidates for user ${targetId}`);
@@ -356,12 +414,14 @@ class VoiceChat {
             console.log(`📡 ICE gathering for user ${targetId}: ${pc.iceGatheringState}`);
         };
 
-        // Add local stream tracks
-        console.log(`Adding local stream tracks to peer ${targetId}`);
-        this.localStream.getTracks().forEach(track => {
-            pc.addTrack(track, this.localStream);
-            console.log(`Added track: ${track.kind}`);
-        });
+        // Add local stream tracks (if mic is available)
+        if (this.localStream) {
+            console.log(`Adding local stream tracks to peer ${targetId}`);
+            this.localStream.getTracks().forEach(track => {
+                pc.addTrack(track, this.localStream);
+                console.log(`Added track: ${track.kind}`);
+            });
+        }
 
         // Handle incoming stream
         pc.ontrack = (event) => {
@@ -403,10 +463,9 @@ class VoiceChat {
             playAudio();
         };
 
-        // Handle ICE candidates
+        // Handle ICE candidates — trickle them immediately as they arrive
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                console.log(`🧊 Sending ICE candidate to user ${targetId}`);
                 this.ws.send(JSON.stringify({
                     type: 'ice-candidate',
                     targetId,
