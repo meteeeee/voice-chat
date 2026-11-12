@@ -1,15 +1,22 @@
-// Voice Chat Client — Discord-style UI, peer-to-peer WebRTC with Cloudflare TURN relay
+// Voice Chat Client — Discord-style UI, 128 kbps Opus audio & 1080p HD WebRTC video
 
 const SETTINGS_KEY = 'vc-audio-settings';
 const USERNAME_KEY = 'vc-username';
-const DEFAULT_SETTINGS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const DEFAULT_SETTINGS = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    audioBitrate: 128000,
+    videoResolution: '1080'
+};
 const AVATAR_COLORS = ['#5865f2', '#3ba55c', '#faa61a', '#ed4245', '#eb459e', '#00a8fc', '#9b59b6', '#1abc9c'];
 
 const SVG = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 const ICONS = {
     speaker: `<svg width="20" height="20" ${SVG}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`,
     micOff: (s) => `<svg width="${s}" height="${s}" ${SVG}><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
-    headphonesOff: (s) => `<svg width="${s}" height="${s}" ${SVG}><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`
+    headphonesOff: (s) => `<svg width="${s}" height="${s}" ${SVG}><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`,
+    video: (s) => `<svg width="${s}" height="${s}" ${SVG}><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
 };
 
 const $ = (id) => document.getElementById(id);
@@ -22,6 +29,18 @@ function colorFor(name) {
 
 function initialOf(name) {
     return (Array.from(String(name).trim())[0] || '?').toUpperCase();
+}
+
+// Boost Opus SDP parameters for crystal-clear 48 kHz high-bitrate voice
+function enhanceOpusSdp(sdp, bitrate = 128000) {
+    if (!sdp) return sdp;
+    return sdp.replace(/a=fmtp:111 ([^\r\n]+)/g, (_, params) => {
+        const clean = params
+            .split(';')
+            .filter((p) => !/^(maxaveragebitrate|stereo|sprop-stereo|useinbandfec|usedtx)=/i.test(p.trim()))
+            .join(';');
+        return `a=fmtp:111 ${clean};maxaveragebitrate=${bitrate};stereo=1;sprop-stereo=1;useinbandfec=1;usedtx=0`;
+    });
 }
 
 class VoiceChat {
@@ -39,21 +58,27 @@ class VoiceChat {
         this.username = '';
         this.currentRoom = 'General';
         this.roomEpoch = 0;
-        this.users = [];           // users in my current room
-        this.roomMembers = {};     // room -> [{ id, username, muted, deafened }]
+        this.users = [];
+        this.roomMembers = {};
         this.roomOrder = [];
         this.speakingUsers = new Set();
+        this.expandedUserId = null;
 
-        this.peers = new Map();            // userId -> RTCPeerConnection
-        this.peerPromises = new Map();     // userId -> Promise<RTCPeerConnection> (in-flight creation)
-        this.peerStates = new Map();       // userId -> { state, relay, ping }
-        this.remoteAudios = new Map();     // userId -> <audio>
-        this.pendingCandidates = new Map();// userId -> [candidate]
-        this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]; // fallback
+        this.peers = new Map();             // userId -> RTCPeerConnection
+        this.peerPromises = new Map();      // userId -> Promise<RTCPeerConnection>
+        this.peerStates = new Map();        // userId -> { state, relay, ping }
+        this.videoSenders = new Map();      // userId -> RTCRtpSender (video)
+        this.remoteAudios = new Map();      // userId -> <audio>
+        this.remoteVideoTracks = new Map(); // userId -> MediaStreamTrack
+        this.pendingCandidates = new Map(); // userId -> [candidate]
+        this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
         this.turnReady = Promise.resolve();
 
         this.localStream = null;
-        this.micState = 'pending';         // pending | ok | denied
+        this.videoStream = null;
+        this.videoTrack = null;
+        this.videoMode = null;              // null | 'camera' | 'screen'
+        this.micState = 'pending';
         this.audioReady = Promise.resolve();
         this._audioReadyResolve = null;
         this.audioCtx = null;
@@ -75,7 +100,6 @@ class VoiceChat {
         this.meterFrame = null;
         this.toastTimer = null;
 
-        // Hidden container for remote <audio> elements (must be in the DOM for autoplay)
         this.audioContainer = document.createElement('div');
         this.audioContainer.id = 'audio-container';
         this.audioContainer.style.display = 'none';
@@ -102,8 +126,36 @@ class VoiceChat {
         return {
             echoCancellation: this.settings.echoCancellation,
             noiseSuppression: this.settings.noiseSuppression,
-            autoGainControl: this.settings.autoGainControl
+            autoGainControl: this.settings.autoGainControl,
+            sampleRate: { ideal: 48000 },
+            channelCount: { ideal: 2 }
         };
+    }
+
+    getVideoConstraints() {
+        const res = this.settings.videoResolution || '1080';
+        const is720 = res === '720';
+        const fps = res === '1080-60' ? 60 : 30;
+        return {
+            width: { ideal: is720 ? 1280 : 1920, max: 1920 },
+            height: { ideal: is720 ? 720 : 1080, max: 1080 },
+            frameRate: { ideal: fps, max: fps }
+        };
+    }
+
+    getVideoMaxBitrate() {
+        const res = this.settings.videoResolution || '1080';
+        if (res === '1080-60') return 6_000_000; // 6 Mbps for 1080p60
+        if (res === '720') return 2_500_000;     // 2.5 Mbps for 720p30
+        return 4_000_000;                        // 4 Mbps for 1080p30
+    }
+
+    updateQualityPill() {
+        const pill = $('quality-pill');
+        if (!pill) return;
+        const kbps = Math.round((Number(this.settings.audioBitrate) || 128000) / 1000);
+        const res = this.settings.videoResolution === '720' ? '720p' : this.settings.videoResolution === '1080-60' ? '1080p60' : '1080p';
+        pill.textContent = `${kbps} kbps · ${res}`;
     }
 
     // ---------------------------------------------------------------- UI wiring
@@ -121,6 +173,8 @@ class VoiceChat {
                 const action = btn.dataset.action;
                 if (action === 'mute') this.toggleMute();
                 else if (action === 'deafen') this.toggleDeafen();
+                else if (action === 'camera') this.toggleCamera();
+                else if (action === 'screen') this.toggleScreen();
                 else if (action === 'settings') this.openSettings();
                 else if (action === 'disconnect') this.disconnect();
             });
@@ -143,12 +197,36 @@ class VoiceChat {
             if (e.key === 'Escape' && !$('settings-modal').classList.contains('hidden')) this.closeSettings();
         });
 
-        for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        for (const key of ['echoCancellation', 'noiseSuppression', 'autoGainControl']) {
             const input = $(`opt-${key}`);
-            input.checked = this.settings[key];
+            input.checked = !!this.settings[key];
             input.addEventListener('change', () => this.updateSetting(key, input.checked));
         }
 
+        const bitrateSelect = $('opt-audioBitrate');
+        bitrateSelect.value = String(this.settings.audioBitrate || 128000);
+        bitrateSelect.addEventListener('change', () => {
+            this.settings.audioBitrate = Number(bitrateSelect.value);
+            this.saveSettings();
+            this.updateQualityPill();
+            this.peers.forEach((pc, id) => this.applySenderBitrates(pc, id));
+            this.toast(`Voice clarity set to ${Math.round(this.settings.audioBitrate / 1000)} kbps`);
+        });
+
+        const resSelect = $('opt-videoResolution');
+        resSelect.value = String(this.settings.videoResolution || '1080');
+        resSelect.addEventListener('change', async () => {
+            this.settings.videoResolution = resSelect.value;
+            this.saveSettings();
+            this.updateQualityPill();
+            if (this.videoTrack) {
+                try { await this.videoTrack.applyConstraints(this.getVideoConstraints()); } catch { /* ignore */ }
+            }
+            this.peers.forEach((pc, id) => this.applySenderBitrates(pc, id));
+            this.renderAppliedSettings();
+        });
+
+        this.updateQualityPill();
         this.setChatOpen(this.chatOpen);
     }
 
@@ -189,8 +267,6 @@ class VoiceChat {
         this.username = $('username-input').value.trim().slice(0, 20) || 'User' + Math.floor(Math.random() * 1000);
         try { localStorage.setItem(USERNAME_KEY, this.username); } catch { /* ignore */ }
 
-        // Create the AudioContext inside the click gesture so it's allowed to run.
-        // It's reused for voice detection and UI sounds.
         try {
             const Ctx = window.AudioContext || window.webkitAudioContext;
             this.audioCtx = new Ctx();
@@ -210,7 +286,6 @@ class VoiceChat {
 
         this.audioReady = new Promise((resolve) => { this._audioReadyResolve = resolve; });
 
-        // ⚡ Fire everything in parallel; peer connections wait for both mic + TURN
         this.turnReady = this.fetchTurnCredentials();
         this.initAudio();
         this.connect();
@@ -225,10 +300,7 @@ class VoiceChat {
             const response = await fetch('/turn-credentials', { signal: controller.signal });
             clearTimeout(timeout);
 
-            if (!response.ok) {
-                console.warn(`Server returned ${response.status} for TURN credentials, using fallback STUN`);
-                return;
-            }
+            if (!response.ok) return;
             const data = await response.json();
             if (Array.isArray(data)) {
                 this.iceServers = data;
@@ -236,13 +308,9 @@ class VoiceChat {
             } else if (data && Array.isArray(data.iceServers)) {
                 this.iceServers = data.iceServers;
                 console.log('✅ Cloudflare TURN credentials fetched');
-            } else {
-                console.warn('Unexpected TURN response, using fallback STUN:', data);
             }
         } catch (err) {
-            console.warn(err.name === 'AbortError'
-                ? '⏱ TURN credential fetch timed out (3s), using fallback STUN'
-                : 'Failed to fetch TURN credentials, using fallback STUN', err);
+            console.warn('Failed to fetch TURN credentials, using fallback STUN:', err);
         }
     }
 
@@ -289,7 +357,6 @@ class VoiceChat {
 
     startHeartbeat() {
         this.stopHeartbeat();
-        // Render closes idle WebSockets after ~60s; ping every 25s
         this.heartbeatInterval = setInterval(() => this.send({ type: 'ping' }), 25000);
     }
 
@@ -302,6 +369,7 @@ class VoiceChat {
         this.leaving = true;
         this.stopHeartbeat();
         clearInterval(this.statsInterval);
+        this.stopVideoStream();
         this.peers.forEach((pc) => pc.close());
         this.localStream?.getTracks().forEach((t) => t.stop());
         try { this.ws?.close(); } catch { /* ignore */ }
@@ -375,9 +443,6 @@ class VoiceChat {
 
             case 'pong':
                 break;
-
-            default:
-                console.log(`❓ Unknown message type: ${message.type}`, message);
         }
     }
 
@@ -394,13 +459,10 @@ class VoiceChat {
             else this.speakingUsers.delete(u.id);
         });
 
-        // Drop peers that are no longer in the room
         for (const id of [...this.peers.keys()]) {
             if (!users.some((u) => u.id === id)) this.removePeer(id);
         }
 
-        // Only the newer user (higher id) starts the call. Before, BOTH sides sent offers
-        // at the same time ("glare"), which made connections randomly fail.
         users.forEach((u) => {
             if (u.id !== this.userId && this.userId > u.id && !this.peers.has(u.id)) {
                 this.createPeerConnection(u.id, true);
@@ -426,16 +488,14 @@ class VoiceChat {
     async _createPeerConnection(targetId, isInitiator) {
         const epoch = this.roomEpoch;
 
-        // Wait for the mic AND the Cloudflare TURN servers, so the connection
-        // never starts with only the fallback STUN server.
         await Promise.all([this.audioReady, this.turnReady]);
-        if (epoch !== this.roomEpoch) return null; // switched rooms while waiting
+        if (epoch !== this.roomEpoch) return null;
         if (this.peers.has(targetId)) return this.peers.get(targetId);
 
         console.log(`🔗 Creating peer connection to user ${targetId} (initiator: ${isInitiator})`);
         const pc = new RTCPeerConnection({
             iceServers: this.iceServers,
-            iceTransportPolicy: 'all', // direct P2P when possible, Cloudflare TURN relay as fallback
+            iceTransportPolicy: 'all',
             iceCandidatePoolSize: 4
         });
         this.peers.set(targetId, pc);
@@ -444,12 +504,13 @@ class VoiceChat {
         pc.onconnectionstatechange = () => {
             const state = pc.connectionState;
             console.log(`🔌 Connection to user ${targetId}: ${state}`);
-            if (this.peers.get(targetId) !== pc) return; // stale connection
+            if (this.peers.get(targetId) !== pc) return;
             this.updatePeerStatus(targetId, state);
 
-            if (state === 'failed') {
+            if (state === 'connected') {
+                this.applySenderBitrates(pc, targetId);
+            } else if (state === 'failed') {
                 this.removePeer(targetId);
-                // Only the initiating side retries, so both sides don't collide again
                 if (this.userId > targetId) {
                     setTimeout(() => {
                         if (!this.peers.has(targetId) && this.users.some((u) => u.id === targetId)) {
@@ -460,11 +521,32 @@ class VoiceChat {
             }
         };
 
-        if (this.localStream) {
-            this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream));
+        // 1. Audio transceiver
+        const audioTrack = this.localStream?.getAudioTracks()[0] || null;
+        if (audioTrack) {
+            pc.addTrack(audioTrack, this.localStream);
+        } else {
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+        }
+
+        // 2. Pre-allocated 1080p video transceiver so camera/screen toggles hot-swap via replaceTrack()
+        const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+        this.videoSenders.set(targetId, videoTransceiver.sender);
+        if (this.videoTrack) {
+            videoTransceiver.sender.replaceTrack(this.videoTrack).catch(() => { });
         }
 
         pc.ontrack = (event) => {
+            if (event.track.kind === 'video') {
+                console.log(`📹 Received video track from user ${targetId}`);
+                this.remoteVideoTracks.set(targetId, event.track);
+                event.track.onunmute = () => this.renderUsers();
+                event.track.onmute = () => this.renderUsers();
+                event.track.onended = () => this.renderUsers();
+                this.renderUsers();
+                return;
+            }
+
             console.log(`🎧 Received audio from user ${targetId}`);
             const old = this.remoteAudios.get(targetId);
             if (old) {
@@ -496,9 +578,9 @@ class VoiceChat {
         if (isInitiator) {
             try {
                 const offer = await pc.createOffer();
+                offer.sdp = enhanceOpusSdp(offer.sdp, this.settings.audioBitrate);
                 await pc.setLocalDescription(offer);
                 this.send({ type: 'offer', targetId, data: pc.localDescription });
-                console.log(`📤 Offer sent to user ${targetId}`);
             } catch (err) {
                 console.error('Failed to create offer:', err);
             }
@@ -507,9 +589,29 @@ class VoiceChat {
         return pc;
     }
 
+    async applySenderBitrates(pc, targetId) {
+        try {
+            for (const sender of pc.getSenders()) {
+                if (!sender.track) continue;
+                const params = sender.getParameters();
+                if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+                if (sender.track.kind === 'audio') {
+                    params.encodings[0].maxBitrate = Number(this.settings.audioBitrate) || 128000;
+                    params.encodings[0].priority = 'high';
+                    params.encodings[0].networkPriority = 'high';
+                } else if (sender.track.kind === 'video') {
+                    params.encodings[0].maxBitrate = this.getVideoMaxBitrate();
+                    params.encodings[0].maxFramerate = this.settings.videoResolution === '1080-60' ? 60 : 30;
+                }
+                await sender.setParameters(params);
+            }
+        } catch (err) {
+            console.warn(`Bitrate tuning skipped for peer ${targetId}:`, err);
+        }
+    }
+
     async handleOffer(senderId, offer) {
         let pc = this.peers.get(senderId);
-        // A new offer on an already-negotiated connection means the other side restarted it
         if (pc && pc.remoteDescription) {
             this.removePeer(senderId);
             pc = null;
@@ -521,9 +623,9 @@ class VoiceChat {
             await pc.setRemoteDescription(offer);
             await this.flushCandidates(senderId, pc);
             const answer = await pc.createAnswer();
+            answer.sdp = enhanceOpusSdp(answer.sdp, this.settings.audioBitrate);
             await pc.setLocalDescription(answer);
             this.send({ type: 'answer', targetId: senderId, data: pc.localDescription });
-            console.log(`📤 Answer sent to user ${senderId}`);
         } catch (err) {
             console.error('Failed to handle offer:', err);
         }
@@ -531,10 +633,7 @@ class VoiceChat {
 
     async handleAnswer(senderId, answer) {
         const pc = this.peers.get(senderId);
-        if (!pc || pc.signalingState !== 'have-local-offer') {
-            console.warn(`⚠️ Ignoring unexpected answer from user ${senderId}`);
-            return;
-        }
+        if (!pc || pc.signalingState !== 'have-local-offer') return;
         try {
             await pc.setRemoteDescription(answer);
             await this.flushCandidates(senderId, pc);
@@ -545,8 +644,6 @@ class VoiceChat {
 
     async handleIceCandidate(senderId, candidate) {
         const pc = this.peers.get(senderId);
-        // Candidates can only be added after the remote description is set.
-        // Before, early candidates (often the TURN relay ones!) were silently dropped.
         if (pc && pc.remoteDescription) {
             try {
                 await pc.addIceCandidate(candidate);
@@ -578,6 +675,8 @@ class VoiceChat {
             pc.close();
             this.peers.delete(userId);
         }
+        this.videoSenders.delete(userId);
+        this.remoteVideoTracks.delete(userId);
         const audio = this.remoteAudios.get(userId);
         if (audio) {
             audio.srcObject = null;
@@ -619,7 +718,7 @@ class VoiceChat {
                 this.peerStates.set(id, { ...(this.peerStates.get(id) || {}), relay, ping });
                 const tile = document.querySelector(`.tile[data-user-id="${id}"]`);
                 if (tile) this.applyPeerStatus(tile, id);
-            } catch { /* connection closed mid-poll */ }
+            } catch { /* ignore */ }
         }
         this.updateVoicePanel();
     }
@@ -642,6 +741,105 @@ class VoiceChat {
         }
     }
 
+    // ---------------------------------------------------------------- 1080p Camera & Screen Share
+
+    async toggleCamera() {
+        if (this.videoMode === 'camera') {
+            await this.stopVideoStream();
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { ...this.getVideoConstraints(), facingMode: 'user' },
+                audio: false
+            });
+            await this.startVideoStream(stream, 'camera');
+        } catch (err) {
+            console.error('Camera error:', err);
+            this.toast('Camera access denied or unavailable');
+        }
+    }
+
+    async toggleScreen() {
+        if (this.videoMode === 'screen') {
+            await this.stopVideoStream();
+            return;
+        }
+        if (!navigator.mediaDevices.getDisplayMedia) {
+            this.toast('Screen sharing is not supported on this device/browser');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { ...this.getVideoConstraints(), cursor: 'always' },
+                audio: false
+            });
+            await this.startVideoStream(stream, 'screen');
+        } catch (err) {
+            if (err.name !== 'NotAllowedError') {
+                console.error('Screen share error:', err);
+                this.toast('Could not start screen share');
+            }
+        }
+    }
+
+    async startVideoStream(stream, mode) {
+        this.videoStream?.getTracks().forEach((t) => t.stop());
+
+        const track = stream.getVideoTracks()[0];
+        if (!track) return;
+        track.contentHint = mode === 'screen' ? 'detail' : 'motion';
+        track.onended = () => {
+            if (this.videoTrack === track) this.stopVideoStream();
+        };
+
+        this.videoStream = stream;
+        this.videoTrack = track;
+        this.videoMode = mode;
+
+        await Promise.all([...this.videoSenders.entries()].map(async ([id, sender]) => {
+            try {
+                await sender.replaceTrack(track);
+                const pc = this.peers.get(id);
+                if (pc) await this.applySenderBitrates(pc, id);
+            } catch (err) {
+                console.warn('replaceTrack failed:', err);
+            }
+        }));
+
+        const s = track.getSettings();
+        if (s.width && s.height) {
+            this.toast(`${mode === 'screen' ? 'Screen share' : 'Camera'} live at ${s.width}×${s.height}${s.frameRate ? ` @ ${Math.round(s.frameRate)}fps` : ''}`);
+        }
+        this.syncVideoButtons();
+        this.applyVoiceState();
+    }
+
+    async stopVideoStream() {
+        this.videoStream?.getTracks().forEach((t) => t.stop());
+        this.videoStream = null;
+        this.videoTrack = null;
+        this.videoMode = null;
+
+        await Promise.all([...this.videoSenders.values()].map((sender) =>
+            sender.replaceTrack(null).catch(() => { })
+        ));
+
+        this.syncVideoButtons();
+        this.applyVoiceState();
+    }
+
+    syncVideoButtons() {
+        document.querySelectorAll('[data-action="camera"]').forEach((b) => {
+            b.classList.toggle('active', this.videoMode === 'camera');
+            b.title = this.videoMode === 'camera' ? 'Turn Off Camera' : 'Turn On Camera (1080p)';
+        });
+        document.querySelectorAll('[data-action="screen"]').forEach((b) => {
+            b.classList.toggle('active', this.videoMode === 'screen');
+            b.title = this.videoMode === 'screen' ? 'Stop Sharing Screen' : 'Share Your Screen (1080p)';
+        });
+    }
+
     // ---------------------------------------------------------------- microphone
 
     async initAudio() {
@@ -653,7 +851,7 @@ class VoiceChat {
         } catch (err) {
             console.error('Failed to get microphone:', err);
             this.micState = 'denied';
-            this.toast('Microphone blocked — you can listen, but nobody can hear you.');
+            this.toast('Microphone blocked — you can listen and watch, but nobody can hear you.');
         } finally {
             if (this._audioReadyResolve) this._audioReadyResolve();
             this.refreshStatus();
@@ -676,7 +874,6 @@ class VoiceChat {
         source.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
 
-        // setInterval instead of requestAnimationFrame so detection keeps working in background tabs
         const interval = setInterval(() => {
             analyser.getByteFrequencyData(data);
             let sum = 0;
@@ -715,8 +912,6 @@ class VoiceChat {
         this.renderAppliedSettings();
     }
 
-    // Re-open the mic with new processing settings and hot-swap it into every call.
-    // replaceTrack() swaps audio without renegotiating, so the call doesn't drop.
     async restartMicrophone() {
         if (this.restartingMic) {
             this.micRestartQueued = true;
@@ -726,7 +921,6 @@ class VoiceChat {
         try {
             do {
                 this.micRestartQueued = false;
-                // Stop the old track first: Chrome reuses an open mic's processing settings otherwise
                 this.teardownVoiceDetection();
                 this.localStream?.getTracks().forEach((t) => t.stop());
 
@@ -735,14 +929,16 @@ class VoiceChat {
                 track.enabled = !this.isMuted;
                 this.localStream = stream;
 
-                await Promise.all([...this.peers.values()].map((pc) => {
+                await Promise.all([...this.peers.entries()].map(async ([id, pc]) => {
                     const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-                    return sender ? sender.replaceTrack(track) : null;
+                    if (sender) {
+                        await sender.replaceTrack(track);
+                        await this.applySenderBitrates(pc, id);
+                    }
                 }));
 
                 this.setupVoiceDetection();
                 this.micState = 'ok';
-                console.log('🎙️ Mic restarted with', track.getSettings());
             } while (this.micRestartQueued);
         } catch (err) {
             console.error('Failed to restart microphone:', err);
@@ -758,7 +954,6 @@ class VoiceChat {
 
     toggleMute() {
         if (this.isDeafened) {
-            // Discord behaviour: unmuting while deafened also undeafens
             this.isDeafened = false;
             this.isMuted = false;
         } else {
@@ -799,19 +994,25 @@ class VoiceChat {
             b.classList.toggle('muted', this.isDeafened);
             b.title = this.isDeafened ? 'Undeafen' : 'Deafen';
         });
-        $('my-status').textContent = this.isDeafened ? 'Deafened' : this.isMuted ? 'Muted' : 'Online';
+        $('my-status').textContent = this.isDeafened ? 'Deafened' : this.isMuted ? 'Muted' : this.videoMode ? 'Streaming HD' : 'Online';
 
-        // Optimistic local update; the server echoes it to everyone else
         const me = this.users.find((u) => u.id === this.userId);
         if (me) {
             me.muted = this.isMuted;
             me.deafened = this.isDeafened;
+            me.video = !!this.videoMode;
+            me.screen = this.videoMode === 'screen';
             this.renderUsers();
         }
-        this.send({ type: 'voice-state', muted: this.isMuted, deafened: this.isDeafened });
+        this.send({
+            type: 'voice-state',
+            muted: this.isMuted,
+            deafened: this.isDeafened,
+            video: !!this.videoMode,
+            screen: this.videoMode === 'screen'
+        });
     }
 
-    // Small Discord-ish blips using the Web Audio API (no sound files needed)
     playTone(kind) {
         const ctx = this.audioCtx;
         if (!ctx || ctx.state !== 'running') return;
@@ -845,13 +1046,14 @@ class VoiceChat {
         this.peers.forEach((pc) => pc.close());
         this.peers.clear();
         this.peerPromises.clear();
+        this.videoSenders.clear();
+        this.remoteVideoTracks.clear();
         this.remoteAudios.forEach((a) => { a.srcObject = null; a.remove(); });
         this.remoteAudios.clear();
         this.pendingCandidates.clear();
         this.peerStates.clear();
         this.speakingUsers.clear();
 
-        // Only wipe chat when actually switching rooms, not on a quick reconnect
         if (!isReconnect || roomChanged) this.resetChat(room);
 
         this.currentRoom = room;
@@ -861,7 +1063,15 @@ class VoiceChat {
         $('vp-channel').textContent = room;
         $('chat-input').placeholder = `Message #${room}`;
 
-        this.send({ type: 'join', username: this.username, room, muted: this.isMuted, deafened: this.isDeafened });
+        this.send({
+            type: 'join',
+            username: this.username,
+            room,
+            muted: this.isMuted,
+            deafened: this.isDeafened,
+            video: !!this.videoMode,
+            screen: this.videoMode === 'screen'
+        });
         this.renderChannels();
         this.updateVoicePanel();
     }
@@ -907,6 +1117,8 @@ class VoiceChat {
 
         const icons = document.createElement('span');
         icons.className = 'member-icons';
+        if (member.screen) icons.insertAdjacentHTML('beforeend', '<span class="live-tag">LIVE</span>');
+        else if (member.video) icons.insertAdjacentHTML('beforeend', ICONS.video(15));
         if (member.muted) icons.insertAdjacentHTML('beforeend', ICONS.micOff(16));
         if (member.deafened) icons.insertAdjacentHTML('beforeend', ICONS.headphonesOff(16));
         el.appendChild(icons);
@@ -918,15 +1130,47 @@ class VoiceChat {
         grid.innerHTML = '';
 
         for (const user of this.users) {
+            const isSelf = user.id === this.userId;
+            const vTrack = isSelf ? this.videoTrack : this.remoteVideoTracks.get(user.id);
+            const showVideo = !!(user.video && vTrack && vTrack.readyState === 'live');
+
             const tile = document.createElement('div');
-            tile.className = 'tile' + (this.speakingUsers.has(user.id) ? ' speaking' : '');
+            tile.className = 'tile'
+                + (this.speakingUsers.has(user.id) ? ' speaking' : '')
+                + (showVideo ? ' has-video' : '')
+                + (user.screen ? ' screen-share' : isSelf && showVideo ? ' mirror' : '')
+                + (this.expandedUserId === user.id ? ' expanded' : '');
             tile.dataset.userId = user.id;
             tile.style.setProperty('--c', colorFor(user.username));
             tile.appendChild(this.buildAvatar(user.username));
 
+            if (showVideo) {
+                const video = document.createElement('video');
+                video.autoplay = true;
+                video.playsInline = true;
+                video.muted = true; // audio plays through the dedicated <audio> element
+                video.srcObject = new MediaStream([vTrack]);
+                video.play().catch(() => { });
+                tile.appendChild(video);
+
+                const live = document.createElement('div');
+                live.className = 'live-badge';
+                live.textContent = user.screen ? 'LIVE · SCREEN' : 'LIVE · HD';
+                tile.appendChild(live);
+
+                tile.addEventListener('click', () => {
+                    this.expandedUserId = this.expandedUserId === user.id ? null : user.id;
+                    this.renderUsers();
+                });
+                tile.addEventListener('dblclick', () => {
+                    if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+                    else tile.requestFullscreen?.().catch(() => { });
+                });
+            }
+
             const label = document.createElement('div');
             label.className = 'tile-label';
-            label.textContent = user.username + (user.id === this.userId ? ' (you)' : '');
+            label.textContent = user.username + (isSelf ? ' (you)' : '');
             tile.appendChild(label);
 
             if (user.muted || user.deafened) {
@@ -937,7 +1181,7 @@ class VoiceChat {
                 tile.appendChild(badges);
             }
 
-            if (user.id !== this.userId) {
+            if (!isSelf) {
                 const status = document.createElement('div');
                 status.className = 'tile-status';
                 tile.appendChild(status);
@@ -1055,7 +1299,6 @@ class VoiceChat {
         this.meterFrame = null;
     }
 
-    // Show what the browser ACTUALLY applied (some browsers ignore certain options)
     renderAppliedSettings() {
         const el = $('settings-applied');
         const track = this.localStream?.getAudioTracks()[0];
@@ -1065,11 +1308,16 @@ class VoiceChat {
         }
         const s = track.getSettings();
         const fmt = (v) => (v === undefined ? 'n/a' : v ? 'on' : 'off');
-        el.textContent = `Your browser reports: echo cancellation ${fmt(s.echoCancellation)}, `
+        const vInfo = this.videoTrack ? (() => {
+            const vs = this.videoTrack.getSettings();
+            return ` · Video: ${vs.width || '?'}×${vs.height || '?'} @ ${Math.round(vs.frameRate || 30)}fps`;
+        })() : '';
+        el.textContent = `Browser audio: echo cancellation ${fmt(s.echoCancellation)}, `
             + `noise suppression ${fmt(s.noiseSuppression)}, auto gain ${fmt(s.autoGainControl)}`
+            + (s.sampleRate ? `, ${Math.round(s.sampleRate / 1000)} kHz` : '')
+            + vInfo
             + (track.label ? ` · ${track.label}` : '');
     }
 }
 
-// Start the app
 window.voiceChat = new VoiceChat();

@@ -154,7 +154,9 @@ function broadcastUserList(room) {
                 username: user.username,
                 speaking: !!user.speaking,
                 muted: !!user.muted,
-                deafened: !!user.deafened
+                deafened: !!user.deafened,
+                video: !!user.video,
+                screen: !!user.screen
             });
         }
     }
@@ -180,7 +182,9 @@ function getRoomMembers() {
                 id: user.id,
                 username: user.username,
                 muted: !!user.muted,
-                deafened: !!user.deafened
+                deafened: !!user.deafened,
+                video: !!user.video,
+                screen: !!user.screen
             });
         }
     }
@@ -209,6 +213,8 @@ wss.on('connection', (ws) => {
                     const room = Object.prototype.hasOwnProperty.call(rooms, message.room) ? message.room : 'General';
                     const muted = !!message.muted;
                     const deafened = !!message.deafened;
+                    const video = !!message.video;
+                    const screen = !!message.screen;
 
                     // Leave previous room if any
                     const existingUser = users.get(ws);
@@ -223,7 +229,7 @@ wss.on('connection', (ws) => {
                     }
 
                     // Join new room
-                    users.set(ws, { id: userId, username, room, speaking: false, muted, deafened });
+                    users.set(ws, { id: userId, username, room, speaking: false, muted, deafened, video, screen });
                     rooms[room].add(userId);
 
                     // Notify others in the room
@@ -252,6 +258,8 @@ wss.on('connection', (ws) => {
                     if (!user) return;
                     user.muted = !!message.muted;
                     user.deafened = !!message.deafened;
+                    user.video = !!message.video;
+                    user.screen = !!message.screen;
                     if (user.muted) user.speaking = false;
                     broadcastUserList(user.room);
                     broadcastRooms();

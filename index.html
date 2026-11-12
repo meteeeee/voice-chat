@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#1e1f22">
     <title>Voice Chat</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="style.css?v=20261112b">
+    <link rel="stylesheet" href="style.css?v=20261112c">
 </head>
 
 <body>
@@ -22,7 +22,7 @@
             <label for="username-input">Username <span class="req">*</span></label>
             <input type="text" id="username-input" maxlength="20" autocomplete="nickname" autofocus>
             <button id="join-btn" class="btn-primary">Join Voice</button>
-            <div class="login-hint">Peer-to-peer voice, relayed through Cloudflare only when needed.</div>
+            <div class="login-hint">128 kbps studio voice &amp; 1080p HD video powered by WebRTC + Cloudflare.</div>
         </div>
     </div>
 
@@ -54,16 +54,28 @@
 
             <!-- Voice connection panel -->
             <div class="voice-panel">
-                <div class="voice-panel-info">
-                    <div id="connection-status" class="vp-status">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-2M9 20v-6M14 20v-10M19 20V5"/></svg>
-                        <span id="connection-text">Connecting…</span>
+                <div class="voice-panel-top">
+                    <div class="voice-panel-info">
+                        <div id="connection-status" class="vp-status">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-2M9 20v-6M14 20v-10M19 20V5"/></svg>
+                            <span id="connection-text">Connecting…</span>
+                        </div>
+                        <div class="vp-sub"><span id="vp-channel">General</span> · <span id="vp-route">Connecting…</span></div>
                     </div>
-                    <div class="vp-sub"><span id="vp-channel">General</span> · <span id="vp-route">Connecting…</span></div>
+                    <button class="icon-btn" data-action="disconnect" title="Disconnect">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+                    </button>
                 </div>
-                <button class="icon-btn" data-action="disconnect" title="Disconnect">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-                </button>
+                <div class="vp-actions">
+                    <button class="vp-btn" data-action="camera" title="Turn On Camera (1080p)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        <span>Video</span>
+                    </button>
+                    <button class="vp-btn" data-action="screen" title="Share Your Screen (1080p)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        <span>Screen</span>
+                    </button>
+                </div>
             </div>
 
             <!-- User panel -->
@@ -105,6 +117,7 @@
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
                 </span>
                 <span id="current-channel">General</span>
+                <span class="quality-pill" id="quality-pill" title="Current voice &amp; video quality">128 kbps · 1080p</span>
                 <div class="header-actions">
                     <button id="chat-toggle-btn" class="icon-btn" title="Toggle Chat">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -114,11 +127,18 @@
             </header>
 
             <div class="content-body">
-                <!-- Voice stage -->
+                <!-- Voice & Video stage -->
                 <section class="stage">
                     <div class="user-grid" id="user-list"></div>
                     <div id="stage-hint" class="stage-hint hidden">It's just you here — send the link and they'll pop up right here.</div>
                     <div class="stage-controls">
+                        <button class="round-btn" data-action="camera" title="Turn On Camera (1080p)">
+                            <svg class="icon-on" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                            <svg class="icon-off" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                        </button>
+                        <button class="round-btn" data-action="screen" title="Share Your Screen (1080p)">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </button>
                         <button class="round-btn" data-action="mute" title="Mute">
                             <svg class="icon-on" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                             <svg class="icon-off" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
@@ -127,7 +147,7 @@
                             <svg class="icon-on" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
                             <svg class="icon-off" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
                         </button>
-                        <button class="round-btn" data-action="settings" title="Voice Settings">
+                        <button class="round-btn" data-action="settings" title="Voice &amp; Video Settings">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
                         </button>
                         <button class="round-btn danger" data-action="disconnect" title="Disconnect">
@@ -157,16 +177,45 @@
         <div class="settings-sidebar">
             <div class="settings-nav">
                 <div class="nav-header">App Settings</div>
-                <div class="nav-item active">Voice &amp; Audio</div>
+                <div class="nav-item active">Voice &amp; Video</div>
             </div>
         </div>
         <div class="settings-content">
             <div class="settings-inner">
-                <h2>Voice &amp; Audio</h2>
+                <h2>Voice &amp; Video</h2>
 
                 <h5>Mic Test</h5>
                 <p class="settings-sub">Talk and watch the bar. Try flipping the toggles below to hear/see the difference.</p>
                 <div class="meter"><div class="meter-fill" id="mic-meter-fill"></div></div>
+
+                <div class="divider"></div>
+
+                <h5>Audio &amp; Video Quality</h5>
+
+                <div class="select-row">
+                    <div class="toggle-text">
+                        <div class="toggle-title">Voice Bitrate (Clarity)</div>
+                        <div class="toggle-desc">Higher bitrate = richer, clearer voice (48 kHz Opus). Regular Discord rooms are 64 kbps; 128 kbps is studio quality.</div>
+                    </div>
+                    <select id="opt-audioBitrate" class="discord-select">
+                        <option value="64000">64 kbps (Standard)</option>
+                        <option value="96000">96 kbps (Clear)</option>
+                        <option value="128000">128 kbps (Studio HD)</option>
+                        <option value="192000">192 kbps (Ultra / Music)</option>
+                    </select>
+                </div>
+
+                <div class="select-row">
+                    <div class="toggle-text">
+                        <div class="toggle-title">Camera &amp; Screen Resolution</div>
+                        <div class="toggle-desc">1080p HD uses ~1.5 GB/hr if relayed (0 GB/hr on Direct P2P). You have 1,000 GB/month free on Cloudflare.</div>
+                    </div>
+                    <select id="opt-videoResolution" class="discord-select">
+                        <option value="720">720p HD (30 fps)</option>
+                        <option value="1080">1080p Full HD (30 fps)</option>
+                        <option value="1080-60">1080p Full HD (60 fps)</option>
+                    </select>
+                </div>
 
                 <div class="divider"></div>
 
@@ -183,7 +232,7 @@
                 <label class="toggle-row">
                     <div class="toggle-text">
                         <div class="toggle-title">Noise Suppression</div>
-                        <div class="toggle-desc">Filters out steady background noise like fans, AC and keyboard hum. Turn it off for music, or if your voice sounds robotic.</div>
+                        <div class="toggle-desc">Filters out steady background noise like fans, AC and keyboard hum. Turn it off for music, or if your voice sounds muffled/robotic.</div>
                     </div>
                     <span class="switch"><input type="checkbox" id="opt-noiseSuppression"><span class="slider"></span></span>
                 </label>
@@ -199,7 +248,7 @@
                 <div class="settings-note">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                     <div>
-                        <div>Changes apply right away (your mic restarts for a split second) and are remembered on this device.</div>
+                        <div>Changes apply right away without dropping your call and are remembered on this device.</div>
                         <div class="settings-applied" id="settings-applied"></div>
                     </div>
                 </div>
@@ -215,7 +264,7 @@
 
     <div id="toast" class="toast hidden"></div>
 
-    <script src="client.js?v=20261112b"></script>
+    <script src="client.js?v=20261112c"></script>
 </body>
 
 </html>

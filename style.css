@@ -396,8 +396,44 @@ svg {
     background: var(--bg-panel);
     border-bottom: 1px solid var(--divider);
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.voice-panel-top {
+    display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.vp-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.vp-btn {
+    height: 32px;
+    border-radius: 4px;
+    background: #2b2d31;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.vp-btn:hover {
+    background: #35373c;
+    color: #fff;
+}
+
+.vp-btn.active {
+    background: var(--green);
+    color: #fff;
 }
 
 .voice-panel-info {
@@ -579,6 +615,18 @@ svg {
     text-overflow: ellipsis;
 }
 
+.quality-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(88, 101, 242, 0.18);
+    border: 1px solid rgba(88, 101, 242, 0.35);
+    color: #c9cdfb;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
 .header-actions {
     margin-left: auto;
     display: flex;
@@ -623,6 +671,69 @@ svg {
     justify-content: center;
     animation: tileIn 0.25s ease-out;
     transition: box-shadow 0.12s ease;
+}
+
+.tile video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+    z-index: 1;
+}
+
+.tile.screen-share video {
+    object-fit: contain;
+}
+
+.tile.mirror video {
+    transform: scaleX(-1);
+}
+
+.tile.has-video {
+    cursor: pointer;
+    background: #000;
+}
+
+.tile.has-video .avatar {
+    display: none;
+}
+
+.tile.expanded {
+    grid-column: 1 / -1;
+    max-height: calc(100vh - 190px);
+}
+
+.tile-label,
+.tile-badges,
+.tile-status,
+.live-badge {
+    z-index: 2;
+}
+
+.live-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--red);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.live-tag {
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--red);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
 }
 
 @keyframes tileIn {
@@ -758,6 +869,15 @@ svg {
 .round-btn.muted {
     background: #fff;
     color: var(--red);
+}
+
+.round-btn.active {
+    background: var(--green);
+    color: #fff;
+}
+
+.round-btn.active:hover {
+    background: #1e8e4c;
 }
 
 .round-btn.danger {
@@ -1031,7 +1151,8 @@ svg {
     background: var(--divider);
 }
 
-.toggle-row {
+.toggle-row,
+.select-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -1039,6 +1160,25 @@ svg {
     padding: 16px 0;
     border-bottom: 1px solid var(--divider);
     cursor: pointer;
+}
+
+.discord-select {
+    min-width: 210px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 4px;
+    border: 1px solid #1e1f22;
+    background: var(--bg-rail);
+    color: var(--header);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+}
+
+.discord-select:focus {
+    border-color: var(--blurple);
 }
 
 .toggle-title {
