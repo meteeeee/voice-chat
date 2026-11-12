@@ -107,6 +107,11 @@ class VoiceChat {
         this.videoStream = null;
         this.videoTrack = null;
         this.videoMode = null;              // null | 'camera' | 'screen'
+        this.facingMode = 'user';           // 'user' (front) | 'environment' (back)
+        this.videoBoost = new Map();        // userId -> 0 | 1 | 2 (low-light boost)
+        this.videoFill = new Map();         // userId -> boolean (true = cover, false = contain)
+        this.videoEls = new Map();          // userId -> persistent <video> element
+        this.makingOffer = new Map();       // userId -> boolean
         this.micState = 'pending';
         this.audioReady = Promise.resolve();
         this._audioReadyResolve = null;
@@ -190,10 +195,27 @@ class VoiceChat {
         };
     }
 
-    getVideoConstraints() {
+    isMobileDevice() {
+        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    }
+
+    getVideoConstraints(forScreen = false) {
         const res = this.settings.videoResolution || '1080';
         const is720 = res === '720';
         const fps = res === '1080-60' ? 60 : 30;
+
+        // On mobile cameras, do NOT pass a rigid max frameRate or rigid landscape aspect ratio:
+        // locking a phone sensor to 30/60fps prevents low-light auto-exposure from lengthening
+        // shutter time (which makes indoor phone cameras look super dark!).
+        if (!forScreen && this.isMobileDevice()) {
+            return {
+                width: { ideal: is720 ? 1280 : 1920 },
+                height: { ideal: is720 ? 720 : 1080 },
+                frameRate: { ideal: 24 },
+                facingMode: this.facingMode
+            };
+        }
+
         return {
             width: { ideal: is720 ? 1280 : 1920, max: 1920 },
             height: { ideal: is720 ? 720 : 1080, max: 1080 },
@@ -232,6 +254,7 @@ class VoiceChat {
                 if (action === 'mute') this.toggleMute();
                 else if (action === 'deafen') this.toggleDeafen();
                 else if (action === 'camera') this.toggleCamera();
+                else if (action === 'flip-camera') this.flipCamera();
                 else if (action === 'screen') this.toggleScreen();
                 else if (action === 'settings') this.openSettings();
                 else if (action === 'disconnect') this.disconnect();
@@ -600,29 +623,38 @@ class VoiceChat {
             }
         };
 
-        // 1. Audio transceiver
+        // 1. Audio track / transceiver
         const audioTrack = this.localStream?.getAudioTracks()[0] || null;
         if (audioTrack) {
             pc.addTrack(audioTrack, this.localStream);
-        } else {
+        } else if (isInitiator) {
             pc.addTransceiver('audio', { direction: 'recvonly' });
         }
 
-        // 2. Pre-allocated 1080p video transceiver so camera/screen toggles hot-swap via replaceTrack()
-        const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-        this.videoSenders.set(targetId, videoTransceiver.sender);
-        if (this.videoTrack) {
-            videoTransceiver.sender.replaceTrack(this.videoTrack).catch(() => { });
+        // 2. Video transceiver: only the initiator pre-allocates before setRemoteDescription.
+        // The responder binds to the offer's m=video transceiver inside handleOffer() so both sides
+        // share the exact same m-line (fixing video not showing between PC and mobile!).
+        if (isInitiator) {
+            const videoTransceiver = pc.addTransceiver(this.videoTrack || 'video', {
+                direction: 'sendrecv',
+                streams: this.videoStream ? [this.videoStream] : []
+            });
+            this.videoSenders.set(targetId, videoTransceiver.sender);
         }
 
         pc.ontrack = (event) => {
             if (event.track.kind === 'video') {
                 console.log(`📹 Received video track from user ${targetId}`);
                 this.remoteVideoTracks.set(targetId, event.track);
-                event.track.onunmute = () => this.renderUsers();
-                event.track.onmute = () => this.renderUsers();
-                event.track.onended = () => this.renderUsers();
-                this.renderUsers();
+                const refresh = () => {
+                    const vEl = this.videoEls.get(targetId);
+                    if (vEl) vEl.play().catch(() => { });
+                    this.renderUsers();
+                };
+                event.track.onunmute = refresh;
+                event.track.onmute = refresh;
+                event.track.onended = refresh;
+                refresh();
                 return;
             }
 
@@ -689,22 +721,59 @@ class VoiceChat {
         }
     }
 
+    async renegotiatePeer(targetId) {
+        const pc = this.peers.get(targetId);
+        if (!pc || pc.signalingState !== 'stable' || this.makingOffer.get(targetId)) return;
+        try {
+            this.makingOffer.set(targetId, true);
+            const offer = await pc.createOffer();
+            offer.sdp = enhanceOpusSdp(offer.sdp, this.settings.audioBitrate);
+            await pc.setLocalDescription(offer);
+            this.send({ type: 'offer', targetId, data: pc.localDescription });
+        } catch (err) {
+            console.warn(`Renegotiation with user ${targetId} skipped:`, err);
+        } finally {
+            this.makingOffer.set(targetId, false);
+        }
+    }
+
     async handleOffer(senderId, offer) {
         let pc = this.peers.get(senderId);
-        if (pc && pc.remoteDescription) {
-            this.removePeer(senderId);
-            pc = null;
-        }
         if (!pc) pc = await this.createPeerConnection(senderId, false);
         if (!pc) return;
 
+        // Perfect Negotiation: handle offer collision without killing the existing connection
+        const polite = this.userId < senderId;
+        const offerCollision = this.makingOffer.get(senderId) || pc.signalingState !== 'stable';
+        if (offerCollision) {
+            if (!polite) {
+                console.log(`⚠️ Ignoring colliding offer from user ${senderId} (impolite peer)`);
+                return;
+            }
+            try { await pc.setLocalDescription({ type: 'rollback' }); } catch { /* ignore */ }
+        }
+
         try {
             await pc.setRemoteDescription(offer);
+
+            // Bind our video sender to the offer's video transceiver so bidirectional video works on mobile + PC
+            const vTransceiver = pc.getTransceivers().find(
+                (t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video'
+            );
+            if (vTransceiver) {
+                vTransceiver.direction = 'sendrecv';
+                this.videoSenders.set(senderId, vTransceiver.sender);
+                if (this.videoTrack && vTransceiver.sender.track !== this.videoTrack) {
+                    await vTransceiver.sender.replaceTrack(this.videoTrack).catch(() => { });
+                }
+            }
+
             await this.flushCandidates(senderId, pc);
             const answer = await pc.createAnswer();
             answer.sdp = enhanceOpusSdp(answer.sdp, this.settings.audioBitrate);
             await pc.setLocalDescription(answer);
             this.send({ type: 'answer', targetId: senderId, data: pc.localDescription });
+            await this.applySenderBitrates(pc, senderId);
         } catch (err) {
             console.error('Failed to handle offer:', err);
         }
@@ -757,6 +826,12 @@ class VoiceChat {
         this.videoSenders.delete(userId);
         this.remoteVideoTracks.delete(userId);
         this.peerLastBytes.delete(userId);
+        this.makingOffer.delete(userId);
+        const vEl = this.videoEls.get(userId);
+        if (vEl) {
+            vEl.srcObject = null;
+            this.videoEls.delete(userId);
+        }
         const audio = this.remoteAudios.get(userId);
         if (audio) {
             audio.srcObject = null;
@@ -898,16 +973,48 @@ class VoiceChat {
             await this.stopVideoStream();
             return;
         }
+        await this.openCameraStream();
+    }
+
+    async openCameraStream() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { ...this.getVideoConstraints(), facingMode: 'user' },
+                video: this.getVideoConstraints(false),
                 audio: false
             });
+            await this.applyLowLightCameraSettings(stream.getVideoTracks()[0]);
             await this.startVideoStream(stream, 'camera');
         } catch (err) {
             console.error('Camera error:', err);
             this.toast('Camera access denied or unavailable');
         }
+    }
+
+    async flipCamera() {
+        if (this.videoMode !== 'camera') return;
+        this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
+        await this.openCameraStream();
+    }
+
+    // Unlock continuous auto-exposure, white balance, and slight exposure compensation on dark mobile cameras
+    async applyLowLightCameraSettings(track) {
+        if (!track || !track.getCapabilities || !track.applyConstraints) return;
+        try {
+            const caps = track.getCapabilities();
+            const adv = {};
+            if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
+                adv.exposureMode = 'continuous';
+            }
+            if (Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) {
+                adv.whiteBalanceMode = 'continuous';
+            }
+            if (caps.exposureCompensation && typeof caps.exposureCompensation.max === 'number' && caps.exposureCompensation.max > 0) {
+                adv.exposureCompensation = Math.min(caps.exposureCompensation.max, (caps.exposureCompensation.max || 1) * 0.35);
+            }
+            if (Object.keys(adv).length) {
+                await track.applyConstraints({ advanced: [adv] });
+            }
+        } catch { /* ignore unsupported camera driver constraints */ }
     }
 
     async toggleScreen() {
@@ -916,12 +1023,12 @@ class VoiceChat {
             return;
         }
         if (!navigator.mediaDevices.getDisplayMedia) {
-            this.toast('Screen sharing is not supported on this device/browser');
+            this.toast('Screen sharing is not supported on mobile browsers — use Camera instead');
             return;
         }
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { ...this.getVideoConstraints(), cursor: 'always' },
+                video: { ...this.getVideoConstraints(true), cursor: 'always' },
                 audio: false
             });
             await this.startVideoStream(stream, 'screen');
@@ -946,14 +1053,30 @@ class VoiceChat {
         this.videoStream = stream;
         this.videoTrack = track;
         this.videoMode = mode;
+        // Spotlight our own stream automatically so we can watch it just like Discord
+        this.expandedUserId = this.userId;
 
-        await Promise.all([...this.videoSenders.entries()].map(async ([id, sender]) => {
+        await Promise.all([...this.peers.entries()].map(async ([id, pc]) => {
             try {
-                await sender.replaceTrack(track);
-                const pc = this.peers.get(id);
-                if (pc) await this.applySenderBitrates(pc, id);
+                let sender = this.videoSenders.get(id);
+                if (!sender) {
+                    const vt = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+                    if (vt) {
+                        vt.direction = 'sendrecv';
+                        sender = vt.sender;
+                        this.videoSenders.set(id, sender);
+                    }
+                }
+                if (sender) {
+                    await sender.replaceTrack(track);
+                } else {
+                    sender = pc.addTrack(track, stream);
+                    this.videoSenders.set(id, sender);
+                }
+                await this.applySenderBitrates(pc, id);
+                await this.renegotiatePeer(id);
             } catch (err) {
-                console.warn('replaceTrack failed:', err);
+                console.warn('Video attach failed:', err);
             }
         }));
 
@@ -970,10 +1093,17 @@ class VoiceChat {
         this.videoStream = null;
         this.videoTrack = null;
         this.videoMode = null;
+        if (this.expandedUserId === this.userId) this.expandedUserId = null;
+        const selfVid = this.videoEls.get(this.userId);
+        if (selfVid) {
+            selfVid.srcObject = null;
+            this.videoEls.delete(this.userId);
+        }
 
-        await Promise.all([...this.videoSenders.values()].map((sender) =>
-            sender.replaceTrack(null).catch(() => { })
-        ));
+        await Promise.all([...this.videoSenders.entries()].map(async ([id, sender]) => {
+            await sender.replaceTrack(null).catch(() => { });
+            await this.renegotiatePeer(id);
+        }));
 
         this.syncVideoButtons();
         this.applyVoiceState();
@@ -988,6 +1118,10 @@ class VoiceChat {
             b.classList.toggle('active', this.videoMode === 'screen');
             b.title = this.videoMode === 'screen' ? 'Stop Sharing Screen' : 'Share Your Screen (1080p)';
         });
+        const flipBtn = $('flip-camera-btn');
+        if (flipBtn) {
+            flipBtn.classList.toggle('hidden', !(this.videoMode === 'camera' && this.isMobileDevice()));
+        }
     }
 
     // ---------------------------------------------------------------- microphone
@@ -1280,42 +1414,112 @@ class VoiceChat {
         const grid = $('user-list');
         grid.innerHTML = '';
 
+        // Auto-spotlight any active video/screen stream if nothing is spotlighted yet,
+        // so you automatically watch your own stream or your partner's stream large on stage!
+        const activeVideoUsers = this.users.filter((u) => {
+            const isSelf = u.id === this.userId;
+            const vt = isSelf ? this.videoTrack : this.remoteVideoTracks.get(u.id);
+            return u.video && vt && vt.readyState === 'live';
+        });
+        if (this.expandedUserId && !activeVideoUsers.some((u) => u.id === this.expandedUserId)) {
+            this.expandedUserId = null;
+        }
+        if (this.expandedUserId === null && activeVideoUsers.length > 0) {
+            // Prefer partner's stream if they are streaming, otherwise spotlight your own stream
+            const remoteStreamer = activeVideoUsers.find((u) => u.id !== this.userId);
+            this.expandedUserId = (remoteStreamer || activeVideoUsers[0]).id;
+        }
+
+        const hasSpotlight = this.expandedUserId !== null && activeVideoUsers.some((u) => u.id === this.expandedUserId);
+        grid.classList.toggle('has-spotlight', hasSpotlight);
+
         for (const user of this.users) {
             const isSelf = user.id === this.userId;
             const vTrack = isSelf ? this.videoTrack : this.remoteVideoTracks.get(user.id);
             const showVideo = !!(user.video && vTrack && vTrack.readyState === 'live');
+            const boost = this.videoBoost.get(user.id) || 0;
+            const fill = !!this.videoFill.get(user.id);
+            const isExpanded = this.expandedUserId === user.id && showVideo;
+            const shouldMirror = isSelf && showVideo && !user.screen && this.facingMode === 'user';
 
             const tile = document.createElement('div');
             tile.className = 'tile'
                 + (this.speakingUsers.has(user.id) ? ' speaking' : '')
                 + (showVideo ? ' has-video' : '')
-                + (user.screen ? ' screen-share' : isSelf && showVideo ? ' mirror' : '')
-                + (this.expandedUserId === user.id ? ' expanded' : '');
+                + (user.screen ? ' screen-share' : '')
+                + (shouldMirror ? ' mirror' : '')
+                + (fill ? ' fill-video' : '')
+                + (boost === 1 ? ' boost-1' : boost === 2 ? ' boost-2' : '')
+                + (isExpanded ? ' expanded' : '');
             tile.dataset.userId = user.id;
             tile.style.setProperty('--c', colorFor(user.username));
             tile.appendChild(this.buildAvatar(user.username));
 
             if (showVideo) {
-                const video = document.createElement('video');
-                video.autoplay = true;
-                video.playsInline = true;
-                video.muted = true; // audio plays through the dedicated <audio> element
-                video.srcObject = new MediaStream([vTrack]);
-                video.play().catch(() => { });
+                // Reuse persistent <video> element so mobile browsers never flicker or drop playback
+                let video = this.videoEls.get(user.id);
+                if (!video) {
+                    video = document.createElement('video');
+                    video.autoplay = true;
+                    video.playsInline = true;
+                    video.setAttribute('playsinline', '');
+                    video.setAttribute('webkit-playsinline', '');
+                    video.muted = true;
+                    this.videoEls.set(user.id, video);
+                }
+                const currentTrack = video.srcObject?.getVideoTracks?.()[0];
+                if (currentTrack !== vTrack) {
+                    video.srcObject = new MediaStream([vTrack]);
+                }
                 tile.appendChild(video);
+                video.play().catch(() => { });
 
                 const live = document.createElement('div');
                 live.className = 'live-badge';
-                live.textContent = user.screen ? 'LIVE · SCREEN' : 'LIVE · HD';
+                live.textContent = user.screen ? 'LIVE · SCREEN' : isSelf ? 'YOUR STREAM · HD' : 'LIVE · HD';
                 tile.appendChild(live);
 
-                tile.addEventListener('click', () => {
-                    this.expandedUserId = this.expandedUserId === user.id ? null : user.id;
+                // On-tile video controls: Low-Light Boost, Fit/Fill, Fullscreen
+                const tools = document.createElement('div');
+                tools.className = 'tile-tools';
+
+                const boostBtn = document.createElement('button');
+                boostBtn.className = 'tile-tool-btn' + (boost > 0 ? ' active' : '');
+                boostBtn.textContent = boost === 0 ? '☀️ Boost' : boost === 1 ? '☀️ +40%' : '☀️ +85%';
+                boostBtn.title = 'Brighten dark camera (Low-Light Boost)';
+                boostBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.videoBoost.set(user.id, (boost + 1) % 3);
                     this.renderUsers();
                 });
-                tile.addEventListener('dblclick', () => {
+
+                const fitBtn = document.createElement('button');
+                fitBtn.className = 'tile-tool-btn' + (fill ? ' active' : '');
+                fitBtn.textContent = fill ? 'Crop: Fill' : 'Fit: Full';
+                fitBtn.title = 'Switch between showing full camera/screen vs filling box';
+                fitBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.videoFill.set(user.id, !fill);
+                    this.renderUsers();
+                });
+
+                const fsBtn = document.createElement('button');
+                fsBtn.className = 'tile-tool-btn';
+                fsBtn.textContent = '⛶';
+                fsBtn.title = 'Fullscreen';
+                fsBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
-                    else tile.requestFullscreen?.().catch(() => { });
+                    else if (tile.requestFullscreen) tile.requestFullscreen().catch(() => { });
+                    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+                });
+
+                tools.append(boostBtn, fitBtn, fsBtn);
+                tile.appendChild(tools);
+
+                tile.addEventListener('click', () => {
+                    this.expandedUserId = this.expandedUserId === user.id ? -1 : user.id;
+                    this.renderUsers();
                 });
             }
 
@@ -1324,7 +1528,7 @@ class VoiceChat {
             label.textContent = user.username + (isSelf ? ' (you)' : '');
             tile.appendChild(label);
 
-            if (user.muted || user.deafened) {
+            if ((user.muted || user.deafened) && !showVideo) {
                 const badges = document.createElement('div');
                 badges.className = 'tile-badges';
                 if (user.muted) badges.insertAdjacentHTML('beforeend', `<span class="tile-badge" title="Muted">${ICONS.micOff(16)}</span>`);
