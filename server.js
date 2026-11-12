@@ -67,7 +67,7 @@ const server = http.createServer(async (req, res) => {
     if (cleanUrl === '/turn-credentials') {
         try {
             const data = await getTurnCredentials();
-            res.writeHead(200, { 
+            res.writeHead(200, {
                 'Content-Type': 'application/json',
                 'Cache-Control': 'private, max-age=300' // Browser can cache for 5 min too
             });
@@ -120,7 +120,7 @@ const rooms = {
     'Music': new Set()
 };
 
-const users = new Map(); // WebSocket -> { id, username, room }
+const users = new Map(); // WebSocket -> { id, username, room, speaking, muted, deafened }
 
 let userIdCounter = 1;
 
@@ -128,20 +128,34 @@ function broadcast(room, message, excludeWs = null) {
     const roomUsers = rooms[room];
     if (!roomUsers) return;
 
-    for (const userId of roomUsers) {
-        for (const [ws, user] of users.entries()) {
-            if (user.id === userId && ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(message));
-            }
+    const payload = JSON.stringify(message);
+    for (const [ws, user] of users.entries()) {
+        if (roomUsers.has(user.id) && ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
+            ws.send(payload);
+        }
+    }
+}
+
+function broadcastAll(message) {
+    const payload = JSON.stringify(message);
+    for (const ws of users.keys()) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(payload);
         }
     }
 }
 
 function broadcastUserList(room) {
     const userList = [];
-    for (const [ws, user] of users.entries()) {
+    for (const user of users.values()) {
         if (user.room === room) {
-            userList.push({ id: user.id, username: user.username, speaking: user.speaking || false });
+            userList.push({
+                id: user.id,
+                username: user.username,
+                speaking: !!user.speaking,
+                muted: !!user.muted,
+                deafened: !!user.deafened
+            });
         }
     }
     broadcast(room, { type: 'user-list', users: userList });
@@ -155,6 +169,32 @@ function getRoomList() {
     return roomList;
 }
 
+function getRoomMembers() {
+    const members = {};
+    for (const roomName of Object.keys(rooms)) {
+        members[roomName] = [];
+    }
+    for (const user of users.values()) {
+        if (user.room && members[user.room]) {
+            members[user.room].push({
+                id: user.id,
+                username: user.username,
+                muted: !!user.muted,
+                deafened: !!user.deafened
+            });
+        }
+    }
+    return members;
+}
+
+function broadcastRooms() {
+    broadcastAll({
+        type: 'rooms',
+        rooms: getRoomList(),
+        members: getRoomMembers()
+    });
+}
+
 wss.on('connection', (ws) => {
     const userId = userIdCounter++;
     console.log(`User ${userId} connected`);
@@ -164,14 +204,15 @@ wss.on('connection', (ws) => {
             const message = JSON.parse(data);
 
             switch (message.type) {
-                case 'join':
-                    // User joining a room
-                    const username = message.username || `User${userId}`;
-                    const room = message.room || 'General';
+                case 'join': {
+                    const username = String(message.username || `User${userId}`).trim().slice(0, 20) || `User${userId}`;
+                    const room = Object.prototype.hasOwnProperty.call(rooms, message.room) ? message.room : 'General';
+                    const muted = !!message.muted;
+                    const deafened = !!message.deafened;
 
                     // Leave previous room if any
                     const existingUser = users.get(ws);
-                    if (existingUser && existingUser.room) {
+                    if (existingUser && existingUser.room && rooms[existingUser.room]) {
                         rooms[existingUser.room].delete(existingUser.id);
                         broadcast(existingUser.room, {
                             type: 'user-left',
@@ -182,97 +223,102 @@ wss.on('connection', (ws) => {
                     }
 
                     // Join new room
-                    users.set(ws, { id: userId, username, room, speaking: false });
-                    if (!rooms[room]) rooms[room] = new Set();
+                    users.set(ws, { id: userId, username, room, speaking: false, muted, deafened });
                     rooms[room].add(userId);
 
-                    // Notify others
+                    // Notify others in the room
                     broadcast(room, {
                         type: 'user-joined',
                         userId,
                         username
                     }, ws);
 
-                    // Send room info to the user
+                    // Send room info to the joining user
                     ws.send(JSON.stringify({
                         type: 'joined',
                         userId,
                         room,
-                        rooms: getRoomList()
+                        rooms: getRoomList(),
+                        members: getRoomMembers()
                     }));
 
                     broadcastUserList(room);
+                    broadcastRooms();
                     break;
+                }
+
+                case 'voice-state': {
+                    const user = users.get(ws);
+                    if (!user) return;
+                    user.muted = !!message.muted;
+                    user.deafened = !!message.deafened;
+                    if (user.muted) user.speaking = false;
+                    broadcastUserList(user.room);
+                    broadcastRooms();
+                    break;
+                }
 
                 case 'offer':
                 case 'answer':
-                case 'ice-candidate':
-                    // Relay WebRTC signaling to target user
+                case 'ice-candidate': {
                     const sender = users.get(ws);
                     if (!sender) {
                         console.warn("⚠️ Signal message received from unjoined client, ignoring.");
                         return;
                     }
                     const targetId = Number(message.targetId);
-                    console.log(`📡 Relaying ${message.type} from user ${sender.id} to user ${targetId}`);
 
-                    let found = false;
                     for (const [targetWs, user] of users.entries()) {
                         if (Number(user.id) === targetId && targetWs.readyState === WebSocket.OPEN) {
-                            found = true;
-                            const relayMessage = {
+                            targetWs.send(JSON.stringify({
                                 type: message.type,
                                 senderId: sender.id,
                                 data: message.data
-                            };
-                            try {
-                                targetWs.send(JSON.stringify(relayMessage));
-                                console.log(`✅ Relayed ${message.type} to user ${targetId}`);
-                            } catch (sendErr) {
-                                console.error(`❌ Failed to send ${message.type} to user ${targetId}:`, sendErr);
-                            }
+                            }));
+                            break;
                         }
                     }
-                    if (!found) {
-                        console.log(`❌ Target user ${targetId} not found! Active users:`,
-                            Array.from(users.values()).map(u => ({ id: u.id, room: u.room })));
-                    }
                     break;
+                }
 
-                case 'speaking':
-                    // Update speaking status
+                case 'speaking': {
                     const speakingUser = users.get(ws);
                     if (speakingUser) {
-                        speakingUser.speaking = message.speaking;
+                        speakingUser.speaking = !!message.speaking && !speakingUser.muted;
                         broadcast(speakingUser.room, {
                             type: 'speaking',
                             userId: speakingUser.id,
-                            speaking: message.speaking
+                            speaking: speakingUser.speaking
                         });
                     }
                     break;
+                }
 
                 case 'get-rooms':
-                    ws.send(JSON.stringify({ type: 'rooms', rooms: getRoomList() }));
+                    ws.send(JSON.stringify({
+                        type: 'rooms',
+                        rooms: getRoomList(),
+                        members: getRoomMembers()
+                    }));
                     break;
 
                 case 'ping':
-                    // Heartbeat — keep the connection alive
                     ws.send(JSON.stringify({ type: 'pong' }));
                     break;
 
-                case 'chat':
-                    // Ephemeral messaging: relay text chat message to everyone in the room without saving it
+                case 'chat': {
                     const chatUser = users.get(ws);
-                    if (chatUser && chatUser.room) {
+                    const text = String(message.text || '').trim().slice(0, 500);
+                    if (chatUser && chatUser.room && text) {
                         broadcast(chatUser.room, {
                             type: 'chat',
                             userId: chatUser.id,
                             username: chatUser.username,
-                            text: message.text || ''
+                            text
                         });
                     }
                     break;
+                }
             }
         } catch (err) {
             console.error('Error processing message:', err);
@@ -283,21 +329,22 @@ wss.on('connection', (ws) => {
         const user = users.get(ws);
         if (user) {
             console.log(`User ${user.username} disconnected`);
-            if (user.room && rooms[user.room]) {
-                rooms[user.room].delete(user.id);
-                broadcast(user.room, {
+            const prevRoom = user.room;
+            users.delete(ws);
+            if (prevRoom && rooms[prevRoom]) {
+                rooms[prevRoom].delete(user.id);
+                broadcast(prevRoom, {
                     type: 'user-left',
                     userId: user.id,
                     username: user.username
                 });
-                broadcastUserList(user.room);
+                broadcastUserList(prevRoom);
             }
-            users.delete(ws);
+            broadcastRooms();
         }
     });
 });
 
 server.listen(PORT, () => {
     console.log(`🎤 Voice Chat Server running at http://localhost:${PORT}`);
-    console.log(`📡 Share your Hamachi IP with friends to connect!`);
 });
