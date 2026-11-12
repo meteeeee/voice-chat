@@ -123,6 +123,9 @@ class VoiceChat {
                 if (Array.isArray(data)) {
                     this.iceServers = data;
                     console.log("✅ TURN credentials fetched");
+                } else if (data && Array.isArray(data.iceServers)) {
+                    this.iceServers = data.iceServers;
+                    console.log("✅ Cloudflare TURN credentials fetched");
                 } else {
                     console.warn("TURN response not array, using fallback STUN:", data);
                 }

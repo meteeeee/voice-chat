@@ -5,22 +5,53 @@ const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
 
-// ⚡ Cache TURN credentials so we don't hit the Metered API on every page load
+// ⚡ Cache TURN credentials so we don't hit the API on every page load
 let turnCache = null;
 let turnCacheTime = 0;
-const TURN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const TURN_CACHE_TTL = 10 * 60 * 1000; // 10 minutes (Cloudflare credentials are valid for 24h)
+
+const CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID || "94d1f9a76ce5553f8fd4a9091091fb08";
+const CLOUDFLARE_TURN_API_TOKEN = process.env.CLOUDFLARE_TURN_API_TOKEN || "a88a80b89537ce93a7b0aa4b7c38e3ccebdbbf0619faef86a5f5780524251d32";
 
 async function getTurnCredentials() {
     const now = Date.now();
     if (turnCache && (now - turnCacheTime) < TURN_CACHE_TTL) {
         return turnCache;
     }
+
+    // 🚀 Primary: Cloudflare Calls TURN (1,000 GB / month free allowance)
+    if (CLOUDFLARE_TURN_KEY_ID && CLOUDFLARE_TURN_API_TOKEN) {
+        try {
+            const response = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${CLOUDFLARE_TURN_API_TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ttl: 86400 }) // Valid for 24 hours
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                turnCache = data.iceServers || data;
+                turnCacheTime = now;
+                console.log('🔄 Cloudflare TURN credentials refreshed (1,000 GB tier)');
+                return turnCache;
+            } else {
+                console.warn(`⚠️ Cloudflare TURN returned status ${response.status}`);
+            }
+        } catch (cfErr) {
+            console.error('⚠️ Cloudflare TURN fetch error, trying Metered fallback:', cfErr);
+        }
+    }
+
+    // Fallback to Metered if Cloudflare is not reachable
     const apiKey = process.env.METERED_API_KEY || "0f98cbf1863b4b88f65da030a99aa58228b9";
     const response = await fetch(`https://mete-vc.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
     const data = await response.json();
     turnCache = data;
     turnCacheTime = now;
-    console.log('🔄 TURN credentials refreshed and cached');
+    console.log('🔄 Metered TURN credentials refreshed (fallback)');
     return data;
 }
 
