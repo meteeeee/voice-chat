@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#1e1f22">
     <title>Voice Chat</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="style.css?v=20261112c">
+    <link rel="stylesheet" href="style.css?v=20261112d">
 </head>
 
 <body>
@@ -66,6 +66,17 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
                     </button>
                 </div>
+                <div class="vp-usage" id="vp-usage" title="Click for detailed bandwidth stats">
+                    <div class="vp-usage-row">
+                        <span>Session: <strong id="vp-session-used">0.0 MB</strong></span>
+                        <span id="vp-rate">0 KB/s</span>
+                    </div>
+                    <div class="vp-usage-row">
+                        <span>Cloudflare: <strong id="vp-month-used">0.00 GB</strong> / 1,000 GB</span>
+                        <span id="vp-month-pct">0%</span>
+                    </div>
+                    <div class="vp-bar"><div class="vp-bar-fill" id="vp-bar-fill"></div></div>
+                </div>
                 <div class="vp-actions">
                     <button class="vp-btn" data-action="camera" title="Turn On Camera (1080p)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
@@ -118,6 +129,7 @@
                 </span>
                 <span id="current-channel">General</span>
                 <span class="quality-pill" id="quality-pill" title="Current voice &amp; video quality">128 kbps · 1080p</span>
+                <span class="usage-pill" id="header-usage-pill" title="Session data used &amp; monthly 1,000 GB quota">Session: 0.0 MB · 0.00 / 1000 GB</span>
                 <div class="header-actions">
                     <button id="chat-toggle-btn" class="icon-btn" title="Toggle Chat">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -187,6 +199,23 @@
                 <h5>Mic Test</h5>
                 <p class="settings-sub">Talk and watch the bar. Try flipping the toggles below to hear/see the difference.</p>
                 <div class="meter"><div class="meter-fill" id="mic-meter-fill"></div></div>
+
+                <div class="divider"></div>
+
+                <h5>Data &amp; Cloudflare 1,000 GB Quota</h5>
+                <div class="data-cards">
+                    <div class="data-card">
+                        <div class="data-card-label">This Session (Total)</div>
+                        <div class="data-card-value" id="stat-session-total">0.0 MB</div>
+                        <div class="data-card-sub" id="stat-session-sub">Direct P2P: 0.0 MB · Relayed: 0.0 MB</div>
+                    </div>
+                    <div class="data-card">
+                        <div class="data-card-label">Cloudflare TURN Used (This Month)</div>
+                        <div class="data-card-value"><span id="stat-month-used">0.00 GB</span> <span class="data-card-of">/ 1,000 GB</span></div>
+                        <div class="meter quota-meter"><div class="meter-fill" id="stat-month-bar"></div></div>
+                        <div class="data-card-sub"><span id="stat-month-left">1,000.00 GB remaining</span> · <button type="button" class="link-btn" id="reset-quota-btn">Reset counter</button></div>
+                    </div>
+                </div>
 
                 <div class="divider"></div>
 
@@ -264,7 +293,7 @@
 
     <div id="toast" class="toast hidden"></div>
 
-    <script src="client.js?v=20261112c"></script>
+    <script src="client.js?v=20261112d"></script>
 </body>
 
 </html>

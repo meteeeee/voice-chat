@@ -412,6 +412,51 @@ svg {
     gap: 6px;
 }
 
+.vp-usage {
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 11.5px;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.vp-usage:hover {
+    background: rgba(0, 0, 0, 0.34);
+}
+
+.vp-usage-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.vp-usage strong {
+    color: var(--header);
+    font-weight: 600;
+}
+
+.vp-bar {
+    height: 4px;
+    margin-top: 2px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.vp-bar-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--blurple);
+    transition: width 0.3s ease;
+}
+
 .vp-btn {
     height: 32px;
     border-radius: 4px;
@@ -625,6 +670,19 @@ svg {
     font-weight: 600;
     letter-spacing: 0.02em;
     white-space: nowrap;
+}
+
+.usage-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(35, 165, 90, 0.14);
+    border: 1px solid rgba(35, 165, 90, 0.32);
+    color: #b7f5ce;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    cursor: pointer;
 }
 
 .header-actions {
@@ -1143,6 +1201,69 @@ svg {
     border-radius: 5px;
     background: var(--green);
     transition: width 0.06s linear;
+}
+
+.data-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.data-card {
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--divider);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.data-card-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.data-card-value {
+    color: var(--header);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.data-card-of {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.data-card-sub {
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+.quota-meter {
+    height: 8px;
+    margin: 2px 0;
+}
+
+.quota-meter .meter-fill {
+    background: var(--blurple);
+    transition: width 0.3s ease;
+}
+
+.link-btn {
+    color: var(--blurple);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+.link-btn:hover {
+    color: #7983f5;
 }
 
 .divider {

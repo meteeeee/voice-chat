@@ -199,6 +199,21 @@ function broadcastRooms() {
     });
 }
 
+function currentMonthKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+let monthlyQuota = { month: currentMonthKey(), bytes: 0 };
+
+function getMonthlyQuota() {
+    const month = currentMonthKey();
+    if (monthlyQuota.month !== month) {
+        monthlyQuota = { month, bytes: 0 };
+    }
+    return monthlyQuota;
+}
+
 wss.on('connection', (ws) => {
     const userId = userIdCounter++;
     console.log(`User ${userId} connected`);
@@ -215,6 +230,12 @@ wss.on('connection', (ws) => {
                     const deafened = !!message.deafened;
                     const video = !!message.video;
                     const screen = !!message.screen;
+
+                    // Sync monthly quota if client has a higher stored value for this month (e.g. after server restart)
+                    const q = getMonthlyQuota();
+                    if (message.quota && message.quota.month === q.month && typeof message.quota.bytes === 'number') {
+                        q.bytes = Math.max(q.bytes, message.quota.bytes);
+                    }
 
                     // Leave previous room if any
                     const existingUser = users.get(ws);
@@ -245,11 +266,32 @@ wss.on('connection', (ws) => {
                         userId,
                         room,
                         rooms: getRoomList(),
-                        members: getRoomMembers()
+                        members: getRoomMembers(),
+                        quota: getMonthlyQuota()
                     }));
 
                     broadcastUserList(room);
                     broadcastRooms();
+                    broadcastAll({ type: 'quota', quota: getMonthlyQuota() });
+                    break;
+                }
+
+                case 'quota-add': {
+                    const q = getMonthlyQuota();
+                    const delta = Number(message.delta) || 0;
+                    if (delta > 0 && delta < 500 * 1024 * 1024) {
+                        q.bytes += delta;
+                    }
+                    if (message.month === q.month && typeof message.total === 'number') {
+                        q.bytes = Math.max(q.bytes, message.total);
+                    }
+                    broadcastAll({ type: 'quota', quota: q });
+                    break;
+                }
+
+                case 'quota-reset': {
+                    monthlyQuota = { month: currentMonthKey(), bytes: 0 };
+                    broadcastAll({ type: 'quota', quota: monthlyQuota, reset: true });
                     break;
                 }
 

@@ -2,6 +2,35 @@
 
 const SETTINGS_KEY = 'vc-audio-settings';
 const USERNAME_KEY = 'vc-username';
+const QUOTA_KEY = 'vc-cloudflare-quota';
+const MONTHLY_LIMIT_GB = 1000;
+const BYTES_PER_GB = 1024 * 1024 * 1024;
+const MONTHLY_LIMIT_BYTES = MONTHLY_LIMIT_GB * BYTES_PER_GB;
+
+function currentMonthKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes < 1024) return `${Math.round(bytes || 0)} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < BYTES_PER_GB) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / BYTES_PER_GB).toFixed(2)} GB`;
+}
+
+function formatGB(bytes) {
+    const gb = (bytes || 0) / BYTES_PER_GB;
+    if (gb > 0 && gb < 0.01) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${gb.toFixed(2)} GB`;
+}
+
+function formatRate(bytesPerSec) {
+    if (!bytesPerSec || bytesPerSec < 100) return '0 KB/s';
+    const kbps = bytesPerSec / 1024;
+    if (kbps < 1024) return `${kbps.toFixed(1)} KB/s`;
+    return `${(kbps / 1024).toFixed(2)} MB/s`;
+}
 const DEFAULT_SETTINGS = {
     echoCancellation: true,
     noiseSuppression: true,
@@ -95,6 +124,12 @@ class VoiceChat {
         this.mutedBeforeDeafen = false;
 
         this.settings = this.loadSettings();
+        this.quota = this.loadQuota();
+        this.sessionDirectBytes = 0;
+        this.sessionRelayBytes = 0;
+        this.currentRateBps = 0;
+        this.lastPollTime = Date.now();
+        this.peerLastBytes = new Map(); // userId -> last total bytes on that PC
         this.chatOpen = window.innerWidth > 900;
         this.lastMsg = null;
         this.meterFrame = null;
@@ -120,6 +155,29 @@ class VoiceChat {
 
     saveSettings() {
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); } catch { /* private mode */ }
+    }
+
+    loadQuota() {
+        const month = currentMonthKey();
+        try {
+            const saved = JSON.parse(localStorage.getItem(QUOTA_KEY) || '{}');
+            if (saved && saved.month === month && typeof saved.bytes === 'number' && saved.bytes >= 0) {
+                return { month, bytes: saved.bytes };
+            }
+        } catch { /* ignore */ }
+        return { month, bytes: 0 };
+    }
+
+    saveQuota() {
+        try { localStorage.setItem(QUOTA_KEY, JSON.stringify(this.quota)); } catch { /* ignore */ }
+    }
+
+    resetQuota() {
+        this.quota = { month: currentMonthKey(), bytes: 0 };
+        this.saveQuota();
+        this.send({ type: 'quota-reset', month: this.quota.month });
+        this.renderUsageStats();
+        this.toast('Monthly 1,000 GB counter reset to 0');
     }
 
     getAudioConstraints() {
@@ -227,7 +285,12 @@ class VoiceChat {
         });
 
         this.updateQualityPill();
+        this.renderUsageStats();
         this.setChatOpen(this.chatOpen);
+
+        $('vp-usage')?.addEventListener('click', () => this.openSettings());
+        $('header-usage-pill')?.addEventListener('click', () => this.openSettings());
+        $('reset-quota-btn')?.addEventListener('click', () => this.resetQuota());
     }
 
     setChatOpen(open) {
@@ -395,11 +458,16 @@ class VoiceChat {
                 this.userId = message.userId;
                 this.currentRoom = message.room;
                 this.applyRooms(message);
+                this.applyServerQuota(message.quota);
                 this.playTone('join');
                 break;
 
             case 'rooms':
                 this.applyRooms(message);
+                break;
+
+            case 'quota':
+                this.applyServerQuota(message.quota, message.reset);
                 break;
 
             case 'user-list':
@@ -450,6 +518,17 @@ class VoiceChat {
         if (message.rooms) this.roomOrder = Object.keys(message.rooms);
         if (message.members) this.roomMembers = message.members;
         this.renderChannels();
+    }
+
+    applyServerQuota(serverQuota, isReset = false) {
+        if (!serverQuota || typeof serverQuota.bytes !== 'number') return;
+        const month = currentMonthKey();
+        if (this.quota.month !== month) this.quota = { month, bytes: 0 };
+        if (serverQuota.month === month) {
+            this.quota.bytes = isReset ? 0 : Math.max(this.quota.bytes, serverQuota.bytes);
+            this.saveQuota();
+            this.renderUsageStats();
+        }
     }
 
     handleUserList(users) {
@@ -677,6 +756,7 @@ class VoiceChat {
         }
         this.videoSenders.delete(userId);
         this.remoteVideoTracks.delete(userId);
+        this.peerLastBytes.delete(userId);
         const audio = this.remoteAudios.get(userId);
         if (audio) {
             audio.srcObject = null;
@@ -695,6 +775,13 @@ class VoiceChat {
     }
 
     async pollStats() {
+        const now = Date.now();
+        const elapsedSec = Math.max(0.5, (now - this.lastPollTime) / 1000);
+        this.lastPollTime = now;
+
+        let tickDeltaBytes = 0;
+        let serverReportDelta = 0;
+
         for (const [id, pc] of this.peers) {
             if (pc.connectionState !== 'connected') continue;
             try {
@@ -715,12 +802,75 @@ class VoiceChat {
                 const relay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
                 const ping = typeof pair.currentRoundTripTime === 'number' ? Math.round(pair.currentRoundTripTime * 1000) : null;
 
+                const totalPairBytes = (pair.bytesSent || 0) + (pair.bytesReceived || 0);
+                const prevPairBytes = this.peerLastBytes.get(id) || 0;
+                const delta = totalPairBytes >= prevPairBytes ? totalPairBytes - prevPairBytes : totalPairBytes;
+                this.peerLastBytes.set(id, totalPairBytes);
+
+                if (delta > 0) {
+                    tickDeltaBytes += delta;
+                    if (relay) this.sessionRelayBytes += delta;
+                    else this.sessionDirectBytes += delta;
+
+                    // Only the higher userId reports the pair's delta to the server so a 2-person call isn't double-counted
+                    if (this.userId > id) serverReportDelta += delta;
+                }
+
                 this.peerStates.set(id, { ...(this.peerStates.get(id) || {}), relay, ping });
                 const tile = document.querySelector(`.tile[data-user-id="${id}"]`);
                 if (tile) this.applyPeerStatus(tile, id);
             } catch { /* ignore */ }
         }
+
+        this.currentRateBps = tickDeltaBytes / elapsedSec;
+
+        if (tickDeltaBytes > 0) {
+            const month = currentMonthKey();
+            if (this.quota.month !== month) this.quota = { month, bytes: 0 };
+            this.quota.bytes += tickDeltaBytes;
+            this.saveQuota();
+            if (serverReportDelta > 0) {
+                this.send({ type: 'quota-add', month, delta: serverReportDelta, total: this.quota.bytes });
+            }
+        }
+
+        this.renderUsageStats();
         this.updateVoicePanel();
+    }
+
+    renderUsageStats() {
+        const sessionTotal = this.sessionDirectBytes + this.sessionRelayBytes;
+        const monthBytes = this.quota.bytes || 0;
+        const pct = Math.min(100, (monthBytes / MONTHLY_LIMIT_BYTES) * 100);
+        const pctStr = pct > 0 && pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`;
+        const remainingGB = Math.max(0, MONTHLY_LIMIT_GB - monthBytes / BYTES_PER_GB);
+
+        const vpSession = $('vp-session-used');
+        if (vpSession) vpSession.textContent = formatBytes(sessionTotal);
+        const vpRate = $('vp-rate');
+        if (vpRate) vpRate.textContent = formatRate(this.currentRateBps);
+        const vpMonth = $('vp-month-used');
+        if (vpMonth) vpMonth.textContent = formatGB(monthBytes);
+        const vpPct = $('vp-month-pct');
+        if (vpPct) vpPct.textContent = pctStr;
+        const vpBar = $('vp-bar-fill');
+        if (vpBar) vpBar.style.width = `${Math.max(pct, monthBytes > 0 ? 1.5 : 0)}%`;
+
+        const pill = $('header-usage-pill');
+        if (pill) pill.textContent = `Session: ${formatBytes(sessionTotal)} · ${formatGB(monthBytes)} / 1,000 GB`;
+
+        const statSession = $('stat-session-total');
+        if (statSession) statSession.textContent = `${formatBytes(sessionTotal)} (${formatRate(this.currentRateBps)})`;
+        const statSub = $('stat-session-sub');
+        if (statSub) {
+            statSub.textContent = `Direct P2P: ${formatBytes(this.sessionDirectBytes)} · Cloudflare Relay: ${formatBytes(this.sessionRelayBytes)}`;
+        }
+        const statMonth = $('stat-month-used');
+        if (statMonth) statMonth.textContent = formatGB(monthBytes);
+        const statBar = $('stat-month-bar');
+        if (statBar) statBar.style.width = `${Math.max(pct, monthBytes > 0 ? 1 : 0)}%`;
+        const statLeft = $('stat-month-left');
+        if (statLeft) statLeft.textContent = `${remainingGB.toFixed(2)} GB remaining (${pctStr} used)`;
     }
 
     updateVoicePanel() {
@@ -1070,7 +1220,8 @@ class VoiceChat {
             muted: this.isMuted,
             deafened: this.isDeafened,
             video: !!this.videoMode,
-            screen: this.videoMode === 'screen'
+            screen: this.videoMode === 'screen',
+            quota: this.quota
         });
         this.renderChannels();
         this.updateVoicePanel();
